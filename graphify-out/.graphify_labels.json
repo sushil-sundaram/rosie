@@ -1,0 +1,15 @@
+{
+  "0": "backend/src/main.rs",
+  "1": "icons.rs",
+  "2": "sync_groceries_with_backend",
+  "3": "AppState",
+  "4": "storage.rs",
+  "5": "Recipe",
+  "6": "GroceryItem",
+  "7": "grocery.rs",
+  "8": "load_recipes",
+  "9": "shared",
+  "10": "rules/graphify.md",
+  "11": "workflows/graphify.md",
+  "12": "shared/src/main.rs"
+}
