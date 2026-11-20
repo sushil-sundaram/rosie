@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS meal_plan (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    slot TEXT NOT NULL,
+    title TEXT NOT NULL,
+    recipe_id INTEGER,
+    FOREIGN KEY(recipe_id) REFERENCES recipes(id) ON DELETE SET NULL
+);

@@ -1,0 +1,1 @@
+ALTER TABLE chores ADD COLUMN due_date TEXT;
