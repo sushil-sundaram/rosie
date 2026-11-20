@@ -27,11 +27,11 @@ server/
 
 ## API
 
-Every route is served under `/api/…` (web app) and at the bare path (Flutter client). Bodies are JSON. Writes send an optional `X-Client-Id` header so live-sync can skip the sender's own echo.
+All routes are served under `/api` (for example `GET /api/pantry`). Request and response bodies are JSON. Writes send an optional `X-Client-Id` header so live-sync can skip the sender's own echo.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/health` | `{"status":"ok"}` |
+| `GET` | `/health` | `{"status":"ok"}`; used by the container health check |
 | `GET` | `/events` | Server-Sent Events: one `{"by","path"}` message per successful write |
 | `GET` · `PUT` | `/settings` | `{"currency":"INR","locale":"en-IN"}`; PUT accepts only known keys |
 | **Pantry** | | |

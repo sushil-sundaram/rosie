@@ -1,9 +1,7 @@
 **/target
-mobile
 data
 docs
 graphify-out
-stitch_assets
 .git
 *.db
 *.db-*

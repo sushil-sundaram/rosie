@@ -35,6 +35,6 @@ ENV DATABASE_URL="sqlite:///app/data/rosie.db" \
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD curl -fsS http://localhost:3000/health || exit 1
+  CMD curl -fsS http://localhost:3000/api/health || exit 1
 
 ENTRYPOINT ["/app/rosie-server"]

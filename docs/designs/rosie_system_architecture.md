@@ -1,37 +1,36 @@
-# EGM Design Specification: Rosie Autonomous Home Management System
+# EGM Design Specification: Rosie Household Management System
 
-**Status**: Approved & Active  
-**Framework**: Elephant-Goldfish Model (EGM)  
-**System**: Rosie (Household Automation & Coordination Assistant)  
-**Version**: 1.1.0  
+**Status**: Approved & Active
+**Framework**: Elephant-Goldfish Model (EGM)
+**System**: Rosie (household coordination)
+**Version**: 2.0.0 — web client, single-container deployment
 
 ---
 
 ## 1. System Vision & Context
 
-Inspired by Rosie the Robot from *The Jetsons*, **Rosie** is a unified household operating system and personal companion designed to eliminate friction in daily household management. Rosie balances chores, coordinates weekly meals and groceries, monitors pantry inventory, and segregates shared living expenses into clear, equitable splits with local AI assistance.
+Rosie is a self-hosted household management system covering meals, pantry, chores, bills and spending. It runs on a single machine in the home, serves every household device from one database, and keeps all data, including images used for local AI recognition, on that machine.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        Rosie Client (Flutter M3)                       │
-├─────────────┬─────────────┬──────────────┬──────────────┬──────────────┤
-│  Home Hub   │   Pantry    │ Meal Planner │ Chores Board │   Expenses   │
-│ (Overview)  │  (Grocery)  │ (Recipe Box) │   (Kanban)   │ (AI Scanner) │
-└─────────────┴─────────────┴──────────────┴──────────────┴──────────────┘
-                               │ HTTP / JSON (Dio)
-                               ▼
+│                    Rosie Web Client (HTML / CSS / JS)                  │
+├────────────┬─────────┬─────────┬─────────┬──────────┬─────────┬────────┤
+│  Overview  │ Pantry  │  Meals  │ Recipes │  Chores  │ Expenses│Settings│
+│ (calendar) │ (list)  │ (cal.)  │ (list)  │(cal/board)│ (cal.) │        │
+└────────────┴─────────┴─────────┴─────────┴──────────┴─────────┴────────┘
+                     │ HTTP/JSON (/api)     ▲ Server-Sent Events (/api/events)
+                     ▼                      │
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        Rosie Backend (Rust Axum)                       │
+│                       Rosie Server (Rust, Axum)                        │
 ├────────────────────────────────────────────────────────────────────────┤
-│ REST Endpoints: /health, /pantry, /recipes, /chores, /expenses        │
-│ Vision Pipeline: POST /expenses/scan-receipt                           │
-│ Database: SQLite (SQLx Migrations) in persistent /app/data volume      │
+│ REST API under /api · static web client · change notifications         │
+│ Database: SQLite (WAL), SQLx migrations applied at startup              │
 └────────────────────────────────────────────────────────────────────────┘
-                               │ HTTP / JSON
-                               ▼
+                                  │ HTTP/JSON
+                                  ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│                     Local Ollama Vision (Host GPU)                     │
-│ Models: llama3.2-vision, minicpm-v, llava (zero cloud exposure)       │
+│                  Local Ollama Vision (host, optional)                  │
+│ Default model: llama3.2-vision · no cloud services                     │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -40,77 +39,84 @@ Inspired by Rosie the Robot from *The Jetsons*, **Rosie** is a unified household
 ## 2. Core Architectural Pillars
 
 ### 2.1 The Elephant (Persistent Domain Contracts)
-Rosie maintains long-horizon context of:
-- **Household Members**: Equitably distributed chores, assigned tasks, and spending balances.
-- **Pantry & Grocery State**: Inventory quantities, threshold-triggered replenishment, and aisle-categorized shopping lists.
-- **Meal Planning & Recipes**: Weekly scheduling, nutritional balances, missing ingredient detection.
-- **Budget & Cost Segregation**: Recurring overhead vs. grocery vs. utility splits across members.
-- **Local AI Context**: Schema extraction prompts for receipt parsing without external API leaks.
+Rosie maintains long-horizon state for:
+- **Household members**: chore assignment, points and bill responsibility.
+- **Pantry**: quantities, units, expiry dates and the purchase each item came from.
+- **Meals & recipes**: a dated meal plan by slot, linked to the recipe collection.
+- **Budget & spending**: expenses by category, monthly category budgets, and bills payable.
+- **Recurrence**: weekly, monthly and yearly series for chores and bills.
+- **Settings**: household currency and locale.
 
 ### 2.2 The Goldfish (Isolated Reviewable Units)
-Every feature module (`home`, `pantry`, `meals`, `chores`, `expenses`, `recipes`) operates within bounded subcontexts with strict contracts, allowing zero-context validation, individual testing, and clean refactoring without cross-module regressions.
+Each module (`overview`, `pantry`, `meals`, `recipes`, `chores`, `expenses`, `settings`) is a self-contained view over the shared API with explicit contracts, so it can be reviewed, tested and changed without regressions in other modules.
 
 ---
 
 ## 3. Subsystem Specifications
 
-### 3.1 Central Hearth Hub (`/`)
-- **Purpose**: At-a-glance household vitals, Rosie companion recommendations ("Rosie Hearth Whisper"), urgent chores due, tonight's dinner suggestion, and month-to-date spending.
-- **Design Invariant**: The Hub does not store primary state; it reads aggregated projections from Chores, Meals, Pantry, and Expenses.
+All endpoints below are served under `/api`. The full reference is in [`server/README.md`](../../server/README.md).
 
-### 3.2 Smart Grocery & Pantry (`/pantry`)
-- **Endpoints**: `GET /pantry`, `POST /pantry`
-- **Model**: `id`, `name`, `quantity`, `unit`
-- **UI Contract**: Material 3 elevated card list with category badges, stock indicators, and quick-add replenishment.
+### 3.1 Overview
+- **Purpose**: one month calendar combining meals, chores, bills and spending, with monthly summary figures and quick entry for the selected day.
+- **Design invariant**: the overview stores no state of its own; it is a projection over the other modules.
 
-### 3.3 Recipe Box & Weekly Meal Planner (`/meals`)
-- **Endpoints**: `GET /recipes`
-- **Model**: `id`, `title`, `description`, `prep_time_minutes`, `cook_time_minutes`
-- **UI Contract**: Segmented tabs (`Weekly Plan`, `Recipe Box`, `Smart Grocery`), preparation timers, macro breakdown, and instant ingredient export to pantry/grocery list.
+### 3.2 Pantry
+- **Endpoints**: `GET/POST /pantry`, `PUT/DELETE /pantry/{id}`, `POST /pantry/{id}/adjust`, `POST /pantry/batch`, `POST /pantry/scan-photo`
+- **Model**: `id`, `name`, `quantity`, `unit`, `expires_on?`, `expense_id?`
+- **Invariants**: quantity changes are relative and never negative; batch additions merge items with the same name and unit.
 
-### 3.4 Chore Kanban Board & Habit Tracker (`/chores`)
-- **Endpoints**: `GET /chores`, `POST /chores`
-- **Model**: `id`, `title`, `assigned_to`, `status`, `points`, `due_date`
-- **Workflow State Machine**:
-  `[To Do]` ──(claim/start)──► `[In Progress]` ──(verify/complete)──► `[Done]`
-- **UI Contract**: Hearth Harmony sync indicator, point rewards, assignee chips, and priority tags.
+### 3.3 Meals & Recipes
+- **Endpoints**: `GET/POST /meals`, `PATCH/DELETE /meals/{id}`, `GET/POST /recipes`, `DELETE /recipes/{id}`
+- **Model**: meal `id`, `date`, `slot` (breakfast, lunch, dinner), `title`, `recipe_id?`; recipe `id`, `name`, `instructions`
 
-### 3.5 Cost Segregation & Household Expenses (`/expenses`)
-- **Endpoints**: `GET /expenses`, `POST /expenses`, `POST /expenses/scan-receipt`
-- **Model**: `id`, `title`, `amount`, `category`, `date`
-- **UI Contract**: Monthly burn rate, category segregation breakdown, camera receipt scanning, confirmation modal, and settle-up ledger.
+### 3.4 Chores & Bills
+- **Endpoints**: `GET/POST /chores`, `PATCH/DELETE /chores/{id}`
+- **Model**: `id`, `title`, `assigned_to`, `priority`, `status`, `points`, `due_date?`, `repeat?`, `repeat_day?`, `next_id?`, `amount?`, `category?`, `expense_id?`
+- **Workflow**: `[To Do]` ──► `[In Progress]` ──► `[Done]`
+- **Bills**: a chore with an `amount`. Entering `Done` records exactly one expense; leaving `Done` removes it.
+- **Recurrence**: entering `Done` creates the next occurrence once. Monthly and yearly series keep their anchor day, clamped to the month's end.
 
----
+### 3.5 Expenses & Budgets
+- **Endpoints**: `GET/POST /expenses`, `DELETE /expenses/{id}`, `POST /expenses/scan-receipt`, `GET /budgets`, `PUT /budgets/{category}`
+- **Model**: expense `id`, `title`, `amount`, `category`, `date`; budget `category`, `amount` (monthly)
 
-## 4. Local AI Receipt Vision Architecture
-
-Rosie utilizes a local-first Vision-Language Model pipeline running completely on-premise/host:
-1. **Camera / Gallery Capture**: Mobile client captures receipt via `image_picker` (scaled to max 1600px, 85% quality).
-2. **Payload Transmission**: Base64 encoded payload sent to `POST /expenses/scan-receipt`.
-3. **Local VLM Inference**:
-   - Backend calls host Ollama (`http://localhost:11434/api/generate` or `http://host.docker.internal:11434/api/generate`).
-   - Uses `llama3.2-vision` (or configured `OLLAMA_VISION_MODEL`).
-   - Strict JSON Schema enforcing `{ title, amount, category, date }`.
-4. **User Confirmation**: The extracted data is returned to the Flutter app and pre-fills an M3 Confirmation Dialog, allowing the user to audit and adjust before saving.
-5. **Zero Cloud Telemetry**: Raw receipt images never leave the local network mesh.
+### 3.6 Settings
+- **Endpoints**: `GET/PUT /settings` (`currency`, `locale`)
+- Theme is a per-device preference held by the client, not server state.
 
 ---
 
-## 5. Containerization & Deployment
+## 4. Local AI Vision Pipeline
 
-Rosie provides enterprise-ready Docker containerization:
-* **Multi-Stage Dockerfile**: Builds in `rust:1.80-slim-bookworm` and produces a clean, minimal runtime in `debian:bookworm-slim`.
-* **Docker Compose**: Orchestrates `rosie-server` with:
-  - Persistent volume `./data:/app/data` for SQLite.
-  - Port `3000:3000` exposed for Tailscale or local traffic.
-  - `extra_hosts: ["host.docker.internal:host-gateway"]` to route Ollama calls directly to the host GPU.
+1. **Capture**: the web client reads a camera or gallery image and downscales it to at most 1600 px (JPEG, 85% quality).
+2. **Transmission**: the image is sent as base64 to `POST /expenses/scan-receipt` or `POST /pantry/scan-photo`.
+3. **Inference**: the server calls Ollama's `/api/generate` with `format: "json"` and a fixed schema prompt — receipts return `{ title, amount, category, date, items }`; pantry photos return `{ items }`.
+4. **Confirmation**: results pre-fill a form or review list; nothing is saved until the user confirms. Receipt items can then be added to the pantry, linked to the new expense.
+5. **No cloud telemetry**: images are processed on the host and never leave the local network.
 
 ---
 
-## 6. Verification & Quality Gates
+## 5. Real-Time Synchronisation
 
-In accordance with EGM verification standards:
-* **Mobile Linter**: `flutter analyze` must report **0 issues**.
-* **Mobile Unit Tests**: `flutter test` must pass all test suites.
-* **Backend Build**: `cargo check` must build with zero warnings.
-* **Unified Verification Command**: `./scripts/verify_all.sh` executes the full quality gate.
+- Every successful write is announced on `GET /api/events` (Server-Sent Events) with the originating client ID.
+- Clients ignore their own announcements and refresh on others. A client with unsaved form input defers the refresh and shows that updates are pending.
+- Write paths that read before writing (bill payment, recurrence, pantry batches) use `BEGIN IMMEDIATE` transactions.
+
+---
+
+## 6. Containerisation & Deployment
+
+- **Dockerfile** (`server/Dockerfile`, build context at the repository root): multi-stage build on `rust:1-slim-bookworm`, runtime on `debian:bookworm-slim`, includes the web client and `tzdata`.
+- **Docker Compose**:
+  - host networking, so the container can reach Ollama on the host's loopback interface;
+  - persistent volume `./data:/app/data` for SQLite;
+  - `TZ` sets the household time zone;
+  - health check on `GET /api/health`.
+
+---
+
+## 7. Verification & Quality Gates
+
+- **Server**: `cargo check` must build with zero warnings.
+- **Web client**: `node --check web/app.js` must pass.
+- **Unified command**: `./scripts/verify_all.sh` runs both.

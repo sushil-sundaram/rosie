@@ -42,9 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .merge(sync::router(changes.clone()))
         .layer(axum::middleware::from_fn_with_state(changes, sync::announce));
     let app = axum::Router::new()
-        // /api/* for the web app; bare paths kept so the Flutter client keeps working.
-        .nest("/api", api.clone())
-        .merge(api)
+        .nest("/api", api)
         .fallback_service(static_files)
         // Photos/receipts arrive as base64 JSON; the web app downsizes them, this is headroom.
         .layer(axum::extract::DefaultBodyLimit::max(20 * 1024 * 1024))
