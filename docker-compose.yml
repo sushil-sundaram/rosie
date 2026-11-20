@@ -1,0 +1,22 @@
+services:
+  rosie:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    image: rosie:latest
+    container_name: rosie
+    restart: unless-stopped
+    # Host networking lets the container reach Ollama, which listens only on
+    # 127.0.0.1:11434. Rosie is served on the host's port 3000 (set PORT to change).
+    network_mode: host
+    environment:
+      - PORT=3000
+      # Household timezone: used for "today" when a paid bill is logged as an expense
+      - TZ=Asia/Kolkata
+      - DATABASE_URL=sqlite:///app/data/rosie.db
+      - OLLAMA_BASE_URL=http://127.0.0.1:11434
+      - OLLAMA_VISION_MODEL=llama3.2-vision
+      - RUST_LOG=info
+    volumes:
+      # :Z relabels for SELinux (Fedora) so the container can write the DB
+      - ./data:/app/data:Z

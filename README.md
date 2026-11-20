@@ -1,133 +1,111 @@
-# 🍱 MunchBox
+# Rosie
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Rust](https://img.shields.io/badge/Rust-Axum%20%7C%20SQLx-orange)
-![Flutter](https://img.shields.io/badge/Flutter-Riverpod%20%7C%20Dio-blue)
-![Tailscale](https://img.shields.io/badge/Networking-Tailscale-white)
+A local-first household app — pantry, meals, chores and money — that runs on one machine in your home and keeps every byte off the public cloud. Named after Rosie the robot from *The Jetsons*.
 
-MunchBox is a **secure, cross-platform, local-first meal planner and pantry manager**. Designed with privacy in mind, MunchBox relies entirely on your private network via a **Tailscale mesh VPN**, ensuring your personal data never touches a public cloud, all without the hassle of port-forwarding or public DNS.
-
----
-
-## 🏗️ How It Works (The Architecture)
-
-MunchBox is built on a two-component architecture:
-
-1. **Home Server (Rust)**
-   - Powered by [Axum](https://github.com/tokio-rs/axum) and [SQLx](https://github.com/launchbadge/sqlx).
-   - Uses a single-file SQLite database running in WAL (Write-Ahead Logging) mode, offering fantastic performance and concurrent reads for a self-hosted environment.
-   - Listens on `0.0.0.0:3000` to capture traffic coming from your Tailnet.
-
-2. **Mobile Client (Flutter)**
-   - A modern mobile app for Android and iOS.
-   - Built with [Riverpod](https://riverpod.dev/) for robust state management. It provides "optimistic UI" capabilities so the app feels instant, even if the connection to the home server temporarily drops.
-   - Communicates securely using [Dio](https://pub.dev/packages/dio) to the Tailscale `100.x.x.x` CGNAT IP range.
-
-### 🔒 Security Without the Headache
-Because all traffic runs through WireGuard via Tailscale, the transport layer is fully encrypted. We configured the mobile clients (via Android's `network_security_config.xml` and iOS's `Info.plist`) to allow cleartext HTTP directly over the `100.64.0.0/10` subnet. This gives you the security of a VPN without the complexity of managing SSL certificates on a local Raspberry Pi or Mini PC!
+[![Rust](https://img.shields.io/badge/server-Rust%20%C2%B7%20Axum%20%C2%B7%20SQLite-orange)](server/)
+[![Web](https://img.shields.io/badge/web-vanilla%20JS%20%C2%B7%20Dracula-bd93f9)](web/)
+[![Flutter](https://img.shields.io/badge/mobile-Flutter-blue)](mobile/)
+[![AI](https://img.shields.io/badge/AI-Ollama%20(local)-white)](https://ollama.com)
 
 ---
 
-## 💻 Code Snippets
+## What it does
 
-### 🦀 Rust Server Entry
-The Axum server spins up a connection pool to SQLite and binds to all interfaces, waiting for Tailscale traffic:
+| Area | Highlights |
+|---|---|
+| **Home** | One month calendar combining meals, chores, bills and spending, with layer toggles and quick-add for any day. |
+| **Chores** | Month calendar or kanban board. Drag to reschedule, click to cycle *to do → doing → done*, points per person. Repeat weekly or monthly. |
+| **Meals** | Month planner with breakfast / lunch / dinner slots; pick from the recipe box or type a meal. |
+| **Expenses** | Calendar of daily spend, monthly budgets per category with pace (“₹x left · ~₹y/day”), bills to pay, and **receipt scanning** with a local vision model. |
+| **Bills** | Added from Expenses, they show up as chores on their due date. Paying one logs it as an expense; un-paying removes it. Repeat monthly or yearly — the next bill is created when you pay, and future ones preview on the calendar. |
+| **Pantry** | Inventory with low-stock and expiry tags. **Add from photo** (fridge, shelf, grocery haul). Items from a scanned receipt link back to the expense they were bought with. |
+| **Recipes** | A simple recipe box. |
+| **Settings** | Household currency (₹ INR by default, shared); dark / light / system theme (per device, also on the header toggle). |
 
-```rust
-// server/src/main.rs
-let connection_options = SqliteConnectOptions::from_str("sqlite://../data/munchbox.db")?
-    .create_if_missing(true)
-    .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
-
-let pool = SqlitePoolOptions::new()
-    .max_connections(5)
-    .connect_with(connection_options).await?;
-
-sqlx::migrate!("./migrations").run(&pool).await?;
-
-let app = routes::app_router(pool).layer(CorsLayer::permissive());
-let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-
-tracing::info!("listening on {}", listener.local_addr()?);
-axum::serve(listener, app).await?;
-```
-
-### 📱 Flutter Network Configuration
-The Dio client points directly to your Tailscale node's static IP or MagicDNS:
-
-```dart
-// mobile/lib/core/config/api_config.dart
-class ApiConfig {
-  // Replace with your actual Server's Tailscale IP
-  static const String tailscaleServerIp = '100.64.0.0'; 
-  static const int port = 3000;
-  static String get baseUrl => 'http://$tailscaleServerIp:$port';
-}
-
-// mobile/lib/core/network/api_client.dart
-final dioProvider = Provider<Dio>((ref) {
-  return Dio(BaseOptions(
-    baseUrl: ApiConfig.baseUrl,
-    connectTimeout: const Duration(seconds: 5),
-  ));
-});
-```
+Everyone in the house sees the same data: changes appear **live** on every open screen, without clobbering what someone is typing.
 
 ---
 
-## 🚀 How to Run It
+## Run it
 
-### Prerequisites
-- [Rust & Cargo](https://rustup.rs/) (for the server)
-- [Flutter SDK](https://docs.flutter.dev/get-started/install) (for the mobile app)
-- [Tailscale](https://tailscale.com/) installed on both your server machine and your mobile device.
-
-### 1. Start the Server (PC)
-
-Run this on the machine acting as your "Home Server":
+Requires Docker. Receipt and photo scanning also need [Ollama](https://ollama.com) on the same machine.
 
 ```bash
-cd server
-
-# The SQLite database is automatically generated in ../data/munchbox.db
-cargo run
+docker compose up -d --build
 ```
-*Note: Make sure this machine is connected to your Tailscale network. You can find its IP by running `tailscale ip`.*
 
-### 2. Configure & Run the Mobile App (Mobile/Emulator)
+Open **http://localhost:3000**. Data lives in `./data/rosie.db` (SQLite, git-ignored).
 
-1. Open `mobile/lib/core/config/api_config.dart`.
-2. Update the `tailscaleServerIp` variable to match the IP address of your Rust server.
-3. Make sure the mobile device (or emulator) has the Tailscale app installed, active, and logged into the same Tailnet as your server.
+For receipt and pantry-photo scanning:
 
 ```bash
-cd mobile
-
-# Fetch dependencies
-flutter pub get
-
-# Run on your connected device
-flutter run
+ollama pull llama3.2-vision
 ```
+
+### Use it from phones
+
+The container listens on port 3000 of the host. Let other devices on your network in (Fedora/firewalld shown):
+
+```bash
+sudo firewall-cmd --permanent --add-port=3000/tcp && sudo firewall-cmd --reload
+```
+
+Then browse to `http://<this-machine's-LAN-IP>:3000`. Away from home, use the machine's [Tailscale](https://tailscale.com) address instead — nothing needs exposing to the internet.
+
+### Configuration
+
+Set in [`docker-compose.yml`](docker-compose.yml):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` | `3000` | HTTP port |
+| `DATABASE_URL` | `sqlite:///app/data/rosie.db` | SQLite file (mounted from `./data`) |
+| `TZ` | `Asia/Kolkata` | Household timezone — decides “today” when a paid bill becomes an expense |
+| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama endpoint (host networking makes the host's loopback reachable) |
+| `OLLAMA_VISION_MODEL` | `llama3.2-vision` | Model used for receipts and pantry photos |
 
 ---
 
-## 🛠️ Project Structure
+## How it's built
 
-```text
-munchbox/
-├── server/                    # Rust backend
-│   ├── Cargo.toml
-│   ├── migrations/            # SQLx schema migrations
-│   └── src/
-│       ├── main.rs            # Axum entry point
-│       ├── models.rs          # PantryItem & Recipe structs
-│       └── routes.rs          # API Handlers
-└── mobile/                    # Flutter frontend
-    ├── pubspec.yaml
-    ├── android/               # Contains Android Tailscale network exceptions
-    ├── ios/                   # Contains iOS ATS Tailscale exceptions
-    └── lib/
-        ├── core/              # Dio client and configurations
-        └── features/          # Riverpod providers and UI screens
+```
+rosie/
+├── web/              # The web app: index.html, app.js, app.css — no build step
+├── server/           # Rust (Axum + SQLx/SQLite) API; also serves web/
+│   ├── migrations/   # Applied automatically at startup
+│   └── src/          # routes.rs (REST + Ollama), sync.rs (live updates), models.rs
+├── mobile/           # Flutter client (earlier, Material 3; uses the same API)
+├── docs/designs/     # System architecture spec
+├── scripts/          # verify_all.sh, run_app.sh
+└── docker-compose.yml
+```
+
+- **One process, one database.** The Rust server owns a single SQLite file (WAL mode). Every device talks to it, so there is nothing to merge.
+- **Live sync.** Each successful write is announced on `GET /api/events` (Server-Sent Events). Open screens refresh; a screen where someone is mid-typing waits and shows an orange dot until they're done.
+- **Safe under concurrency.** Pantry ± is relative (`quantity + delta`), and bill payment / recurrence run in write-locked transactions, so two people acting at once don't double-count or lose updates.
+- **Local AI only.** Images go to Ollama on this machine and nowhere else; results are always shown for review before anything is saved.
+- **Web UI.** Plain JavaScript with a tiny DOM helper, the [Dracula](https://draculatheme.com) palette in dark mode and Alucard in light mode.
+
+API reference: [`server/README.md`](server/README.md).
+
+---
+
+## Develop
+
+Run the server natively (serves `../web` and uses `../data/rosie.db`):
+
+```bash
+cd server && cargo run
+```
+
+Edit files in `web/` and reload the browser. For the Docker build, rebuild after changes:
+
+```bash
+docker compose up -d --build
+```
+
+Full check (Flutter analyze + tests, `cargo check`):
+
+```bash
+./scripts/verify_all.sh
 ```

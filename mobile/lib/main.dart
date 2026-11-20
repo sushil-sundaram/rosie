@@ -1,27 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'features/pantry/presentation/pantry_screen.dart';
+import 'core/theme/app_theme.dart';
+import 'core/navigation/app_router.dart';
 
 void main() {
   runApp(
     const ProviderScope(
-      child: MunchBoxApp(),
+      child: RosieApp(),
     ),
   );
 }
 
-class MunchBoxApp extends StatelessWidget {
-  const MunchBoxApp({super.key});
+class RosieApp extends ConsumerWidget {
+  const RosieApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'MunchBox',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
-        useMaterial3: true,
-      ),
-      home: const PantryScreen(),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final router = ref.watch(routerProvider);
+
+    return MaterialApp.router(
+      title: 'Rosie',
+      theme: AppTheme.darkTheme,
+      routerConfig: router,
     );
   }
 }
