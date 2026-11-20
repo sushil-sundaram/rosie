@@ -1,85 +1,111 @@
-# 🤖 Rosie: Local-First Smart Household Operating System
+# Rosie
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![EGM Spec](https://img.shields.io/badge/EGM-Spec%20Driven-green)](docs/designs/rosie_system_architecture.md)
-[![Rust](https://img.shields.io/badge/Rust-Axum%20%7C%20SQLx-orange)](server/)
-[![Flutter](https://img.shields.io/badge/Flutter-M3%20%7C%20Riverpod-blue)](mobile/)
-[![Networking](https://img.shields.io/badge/Networking-Tailscale%20Mesh-white)](https://tailscale.com)
+A local-first household app — pantry, meals, chores and money — that runs on one machine in your home and keeps every byte off the public cloud. Named after Rosie the robot from *The Jetsons*.
 
-Rosie is a **secure, local-first, privacy-respecting household operating system** inspired by Rosie the Robot from *The Jetsons*. Rosie orchestrates smart grocery replenishment, weekly meal schedules, chore assignments with Kanban progression, and equitable household expense segregation over an encrypted **Tailscale mesh VPN**.
-
----
-
-## 🏛️ EGM Architecture Blueprint ("Hay")
-
-Rosie's architecture and development follow Google's **Elephant-Goldfish Model (EGM)**:
-* **The Elephant (Specification)**: [`docs/designs/rosie_system_architecture.md`](docs/designs/rosie_system_architecture.md) specifies system invariants, API contracts, domain entities, and M3 UI standards.
-* **Component Packages ("Peanuts")**: Modular subtrees maintain bounded context and explicit interface contracts:
-  * [`mobile/`](mobile/README.md): Material 3 Flutter client (Riverpod state management, GoRouter, Dio networking).
-  * [`server/`](server/README.md): High-performance Rust backend (Axum async HTTP, SQLite WAL, SQLx migrations).
-* **The Goldfish (Subagent Quality Gates)**: Bounded modules reviewed independently without cross-domain pollution.
-
-```
-rosie/
-├── docs/designs/
-│   └── rosie_system_architecture.md  # Formal EGM Design Specification
-├── mobile/                           # Flutter Material Design 3 Client
-│   ├── lib/core/                     # Theme, Router, Network contracts
-│   └── lib/features/                 # Home, Pantry, Meals, Chores, Expenses
-├── server/                           # Rust Axum Backend & Migrations
-│   ├── migrations/                   # SQLite schema evolution scripts
-│   └── src/                          # Route handlers and data models
-└── scripts/                          # Automated verification and workflow tools
-    ├── verify_all.sh                 # Unified EGM verification suite
-    └── run_app.sh                    # Automated launch script
-```
+[![Rust](https://img.shields.io/badge/server-Rust%20%C2%B7%20Axum%20%C2%B7%20SQLite-orange)](server/)
+[![Web](https://img.shields.io/badge/web-vanilla%20JS%20%C2%B7%20Dracula-bd93f9)](web/)
+[![Flutter](https://img.shields.io/badge/mobile-Flutter-blue)](mobile/)
+[![AI](https://img.shields.io/badge/AI-Ollama%20(local)-white)](https://ollama.com)
 
 ---
 
-## 🎨 Google Material Design 3 (M3) System
+## What it does
 
-The mobile application implements Google's modern **Material Design 3**:
-* **Material You Surface Hierarchy**: Dynamic surface tokens (`surfaceContainerLowest` through `surfaceContainerHighest`) with tonal elevation.
-* **M3 Navigation**: Bottom `NavigationBar` with `NavigationDestination` selection pills.
-* **Clean Components**: 16dp rounded cards with subtle outline borders, M3 `FloatingActionButton`, and `SegmentedButton`.
-* **Zero Analyzer Issues**: Fully updated to the latest Flutter SDK standards without deprecated APIs.
+| Area | Highlights |
+|---|---|
+| **Home** | One month calendar combining meals, chores, bills and spending, with layer toggles and quick-add for any day. |
+| **Chores** | Month calendar or kanban board. Drag to reschedule, click to cycle *to do → doing → done*, points per person. Repeat weekly or monthly. |
+| **Meals** | Month planner with breakfast / lunch / dinner slots; pick from the recipe box or type a meal. |
+| **Expenses** | Calendar of daily spend, monthly budgets per category with pace (“₹x left · ~₹y/day”), bills to pay, and **receipt scanning** with a local vision model. |
+| **Bills** | Added from Expenses, they show up as chores on their due date. Paying one logs it as an expense; un-paying removes it. Repeat monthly or yearly — the next bill is created when you pay, and future ones preview on the calendar. |
+| **Pantry** | Inventory with low-stock and expiry tags. **Add from photo** (fridge, shelf, grocery haul). Items from a scanned receipt link back to the expense they were bought with. |
+| **Recipes** | A simple recipe box. |
+| **Settings** | Household currency (₹ INR by default, shared); dark / light / system theme (per device, also on the header toggle). |
+
+Everyone in the house sees the same data: changes appear **live** on every open screen, without clobbering what someone is typing.
 
 ---
 
-## ⚡ Quick Start & Verification
+## Run it
 
-### Unified EGM Quality Gate
-Run the all-in-one verification suite:
-```bash
-./scripts/verify_all.sh
-```
-This runs:
-1. `flutter analyze` (Zero issues required)
-2. `flutter test` (Widget & unit test suites)
-3. `cargo check` (Rust server compilation check)
+Requires Docker. Receipt and photo scanning also need [Ollama](https://ollama.com) on the same machine.
 
-### Running the Web App (Docker)
-The Rust server also serves a minimalist, Dracula-themed web UI from [`web/`](web/).
 ```bash
 docker compose up -d --build
 ```
-Then open http://localhost:3000. Data persists in `./data/rosie.db`. The REST API is available at both `/api/*` (web) and the bare paths (mobile).
 
-> The container uses host networking so receipt scanning can reach Ollama at `127.0.0.1:11434`. Scanning needs a vision model: `ollama pull llama3.2-vision` (or set `OLLAMA_VISION_MODEL`).
+Open **http://localhost:3000**. Data lives in `./data/rosie.db` (SQLite, git-ignored).
 
-### Running Rosie (native)
-1. **Start the Backend Server**:
-   ```bash
-   cd server
-   cargo run
-   ```
-2. **Start the Flutter Client**:
-   ```bash
-   cd mobile
-   flutter run
-   ```
+For receipt and pantry-photo scanning:
+
+```bash
+ollama pull llama3.2-vision
+```
+
+### Use it from phones
+
+The container listens on port 3000 of the host. Let other devices on your network in (Fedora/firewalld shown):
+
+```bash
+sudo firewall-cmd --permanent --add-port=3000/tcp && sudo firewall-cmd --reload
+```
+
+Then browse to `http://<this-machine's-LAN-IP>:3000`. Away from home, use the machine's [Tailscale](https://tailscale.com) address instead — nothing needs exposing to the internet.
+
+### Configuration
+
+Set in [`docker-compose.yml`](docker-compose.yml):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` | `3000` | HTTP port |
+| `DATABASE_URL` | `sqlite:///app/data/rosie.db` | SQLite file (mounted from `./data`) |
+| `TZ` | `Asia/Kolkata` | Household timezone — decides “today” when a paid bill becomes an expense |
+| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama endpoint (host networking makes the host's loopback reachable) |
+| `OLLAMA_VISION_MODEL` | `llama3.2-vision` | Model used for receipts and pantry photos |
 
 ---
 
-## 🔒 Security & Privacy
-Rosie routes all internal traffic over an encrypted Tailscale WireGuard mesh (`100.64.0.0/10`), keeping sensitive household inventory, financial splits, and chore schedules entirely local and off public cloud servers.
+## How it's built
+
+```
+rosie/
+├── web/              # The web app: index.html, app.js, app.css — no build step
+├── server/           # Rust (Axum + SQLx/SQLite) API; also serves web/
+│   ├── migrations/   # Applied automatically at startup
+│   └── src/          # routes.rs (REST + Ollama), sync.rs (live updates), models.rs
+├── mobile/           # Flutter client (earlier, Material 3; uses the same API)
+├── docs/designs/     # System architecture spec
+├── scripts/          # verify_all.sh, run_app.sh
+└── docker-compose.yml
+```
+
+- **One process, one database.** The Rust server owns a single SQLite file (WAL mode). Every device talks to it, so there is nothing to merge.
+- **Live sync.** Each successful write is announced on `GET /api/events` (Server-Sent Events). Open screens refresh; a screen where someone is mid-typing waits and shows an orange dot until they're done.
+- **Safe under concurrency.** Pantry ± is relative (`quantity + delta`), and bill payment / recurrence run in write-locked transactions, so two people acting at once don't double-count or lose updates.
+- **Local AI only.** Images go to Ollama on this machine and nowhere else; results are always shown for review before anything is saved.
+- **Web UI.** Plain JavaScript with a tiny DOM helper, the [Dracula](https://draculatheme.com) palette in dark mode and Alucard in light mode.
+
+API reference: [`server/README.md`](server/README.md).
+
+---
+
+## Develop
+
+Run the server natively (serves `../web` and uses `../data/rosie.db`):
+
+```bash
+cd server && cargo run
+```
+
+Edit files in `web/` and reload the browser. For the Docker build, rebuild after changes:
+
+```bash
+docker compose up -d --build
+```
+
+Full check (Flutter analyze + tests, `cargo check`):
+
+```bash
+./scripts/verify_all.sh
+```
