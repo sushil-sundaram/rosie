@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Munchbox Mobile</string>
+	<string>Rosie Mobile</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>munchbox_mobile</string>
+	<string>Rosie Mobile</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -45,6 +45,11 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+    
+    <key>NSCameraUsageDescription</key>
+    <string>Rosie needs camera access to scan physical receipts for expense tracking.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Rosie needs photo library access to upload receipt images.</string>
     
     <!-- Tailscale Local Network Exceptions -->
     <key>NSAppTransportSecurity</key>

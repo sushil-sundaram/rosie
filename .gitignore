@@ -28,3 +28,10 @@ mobile/.packages
 *.swo
 .idea/
 .vscode/
+
+# Generated knowledge graph (graphify) — rebuild locally with /graphify
+graphify-out/
+
+# Local design references downloaded from Stitch (not part of the app)
+stitch_assets/
+download_stitch_screens.py
