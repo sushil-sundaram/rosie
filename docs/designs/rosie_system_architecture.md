@@ -66,8 +66,9 @@ All endpoints below are served under `/api`. The full reference is in [`server/R
 - **Invariants**: quantity changes are relative and never negative; batch additions merge items with the same name and unit.
 
 ### 3.3 Meals & Recipes
-- **Endpoints**: `GET/POST /meals`, `PATCH/DELETE /meals/{id}`, `GET/POST /recipes`, `DELETE /recipes/{id}`
-- **Model**: meal `id`, `date`, `slot` (breakfast, lunch, dinner), `title`, `recipe_id?`; recipe `id`, `name`, `instructions`
+- **Endpoints**: `GET/POST /meals`, `PATCH/DELETE /meals/{id}`, `GET/POST /recipes`, `PUT/DELETE /recipes/{id}`, `POST /recipes/import`
+- **Model**: meal `id`, `date`, `slot` (breakfast, lunch, dinner), `title`, `recipe_id?`; recipe `id`, `name`, `instructions` (one step per line), `servings?`, `time_minutes?`, `source_url?`, `image_url?`, `ingredients[]` (`text`, `name`, `quantity`, `unit`)
+- **Invariants**: ingredient lines are stored as written and parsed on save; imports return drafts and never write.
 
 ### 3.4 Chores & Bills
 - **Endpoints**: `GET/POST /chores`, `PATCH/DELETE /chores/{id}`
@@ -96,6 +97,13 @@ All endpoints below are served under `/api`. The full reference is in [`server/R
 
 ---
 
+### 4.1 Recipe import
+
+1. **Link**: the server fetches the page (public hosts only, 5 MB, 20 s) and reads the schema.org `Recipe` JSON-LD block. No model is involved.
+2. **Fallback**: pages without recipe data are reduced to their main text (navigation, scripts and footers removed, 12,000 characters) and sent to the text model (`OLLAMA_TEXT_MODEL`, default the vision model).
+3. **Photo / text**: cookbook pages, handwritten cards and screenshots go to the vision model; pasted text to the text model.
+4. **Review**: the draft opens in an editor; nothing is stored until it is saved.
+
 ## 5. Real-Time Synchronisation
 
 - Every successful write is announced on `GET /api/events` (Server-Sent Events) with the originating client ID.
@@ -117,6 +125,6 @@ All endpoints below are served under `/api`. The full reference is in [`server/R
 
 ## 7. Verification & Quality Gates
 
-- **Server**: `cargo check` must build with zero warnings.
+- **Server**: `cargo check` must build with zero warnings; `cargo test` covers ingredient parsing, recipe extraction and link safety.
 - **Web client**: `node --check web/app.js` must pass.
 - **Unified command**: `./scripts/verify_all.sh` runs both.

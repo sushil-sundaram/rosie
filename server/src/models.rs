@@ -20,16 +20,34 @@ pub struct Recipe {
     #[serde(default)]
     pub id: i64,
     pub name: String,
+    #[serde(default)]
     pub instructions: String,
+    #[serde(default)]
+    pub servings: Option<String>,
+    #[serde(default)]
+    pub time_minutes: Option<i64>,
+    #[serde(default)]
+    pub source_url: Option<String>,
+    #[serde(default)]
+    pub image_url: Option<String>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub ingredients: Vec<RecipeIngredient>,
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Serialize, Deserialize, Clone, FromRow)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, FromRow)]
 pub struct RecipeIngredient {
-    pub id: i64,
+    #[serde(skip)]
     pub recipe_id: i64,
+    /// The line as written, e.g. "1½ cups basmati rice, rinsed".
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
     pub name: String,
+    /// 0 when the line has no amount ("salt to taste").
+    #[serde(default)]
     pub quantity: f64,
+    #[serde(default)]
     pub unit: String,
 }
 

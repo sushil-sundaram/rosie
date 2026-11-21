@@ -37,7 +37,8 @@ async fn events(State(changes): State<Changes>) -> Sse<impl Stream<Item = Result
 /// After a successful write (anything but GET, excluding the read-only AI scans),
 /// broadcast which client made it so that client can ignore its own echo.
 pub async fn announce(State(changes): State<Changes>, req: Request, next: Next) -> Response {
-    let is_write = req.method() != Method::GET && req.method() != Method::OPTIONS && !req.uri().path().contains("scan");
+    let is_write = req.method() != Method::GET && req.method() != Method::OPTIONS && !req.uri().path().contains("scan")
+        && !req.uri().path().ends_with("/import");
     let by = req
         .headers()
         .get("x-client-id")

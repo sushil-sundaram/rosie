@@ -1,4 +1,5 @@
 mod models;
+mod recipes;
 mod routes;
 mod sync;
 
