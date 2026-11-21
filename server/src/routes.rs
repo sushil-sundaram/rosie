@@ -6,7 +6,8 @@ use axum::{
     Json, Router,
 };
 use sqlx::SqlitePool;
-use crate::models::{Budget, BudgetUpdate, PantryItem, Recipe, Chore, ChoreUpdate, Expense, Meal, MealUpdate, ScanReceiptRequest};
+use crate::models::{Budget, BudgetUpdate, PantryItem, Chore, ChoreUpdate, Expense, Meal, MealUpdate, ScanReceiptRequest};
+use crate::recipes;
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -18,8 +19,9 @@ pub fn app_router(pool: SqlitePool) -> Router {
         .route("/pantry/batch", post(add_pantry_batch))
         .route("/pantry/{id}/adjust", post(adjust_pantry_item))
         .route("/pantry/scan-photo", post(scan_pantry_photo))
-        .route("/recipes", get(get_recipes).post(add_recipe))
-        .route("/recipes/{id}", delete(delete_recipe))
+        .route("/recipes", get(recipes::get_recipes).post(recipes::add_recipe))
+        .route("/recipes/import", post(recipes::import_recipe))
+        .route("/recipes/{id}", axum::routing::put(recipes::update_recipe).delete(recipes::delete_recipe))
         .route("/meals", get(get_meals).post(add_meal))
         .route("/meals/{id}", patch(update_meal).delete(delete_meal))
         .route("/chores", get(get_chores).post(add_chore))
@@ -94,24 +96,6 @@ async fn adjust_pantry_item(
         Ok(_) => (StatusCode::OK, Json(json!({"status": "updated"}))),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to update pantry item"}))),
     }
-}
-
-async fn add_recipe(State(pool): State<SqlitePool>, Json(payload): Json<Recipe>) -> impl IntoResponse {
-    match sqlx::query("INSERT INTO recipes (name, instructions) VALUES (?, ?)")
-        .bind(&payload.name)
-        .bind(&payload.instructions)
-        .execute(&pool)
-        .await
-    {
-        Ok(_) => (StatusCode::CREATED, Json(json!({"status": "created"}))),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to insert recipe"}))),
-    }
-}
-
-async fn delete_recipe(State(pool): State<SqlitePool>, Path(id): Path<i64>) -> impl IntoResponse {
-    let _ = sqlx::query("DELETE FROM recipe_ingredients WHERE recipe_id = ?").bind(id).execute(&pool).await;
-    let _ = sqlx::query("UPDATE meal_plan SET recipe_id = NULL WHERE recipe_id = ?").bind(id).execute(&pool).await;
-    delete_by_id(&pool, "recipes", id).await
 }
 
 async fn get_meals(State(pool): State<SqlitePool>) -> impl IntoResponse {
@@ -456,19 +440,6 @@ async fn add_pantry_item(
     }
 }
 
-async fn get_recipes(State(pool): State<SqlitePool>) -> impl IntoResponse {
-    match sqlx::query_as::<_, Recipe>("SELECT * FROM recipes ORDER BY name COLLATE NOCASE")
-        .fetch_all(&pool)
-        .await
-    {
-        Ok(recipes) => (StatusCode::OK, Json(json!(recipes))),
-        Err(_) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to fetch recipes"})),
-        ),
-    }
-}
-
 async fn get_chores(State(pool): State<SqlitePool>) -> impl IntoResponse {
     match sqlx::query_as::<_, Chore>("SELECT * FROM chores")
         .fetch_all(&pool)
@@ -554,19 +525,33 @@ async fn ollama_vision_json(
     model: Option<String>,
     prompt: &str,
 ) -> Result<(serde_json::Value, String), (StatusCode, Json<serde_json::Value>)> {
-    let base = std::env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
     let model = model
         .or_else(|| std::env::var("OLLAMA_VISION_MODEL").ok())
         .unwrap_or_else(|| "llama3.2-vision".to_string());
-    let image = image_base64
-        .find("base64,")
-        .map(|i| &image_base64[i + 7..])
-        .unwrap_or(image_base64);
+    ollama_json(prompt, Some(image_base64), model).await
+}
 
-    tracing::info!("Sending image to Ollama model '{}' at {}", model, base);
+/// Sends a prompt (and optionally one image) to Ollama in JSON mode and parses the reply.
+pub(crate) async fn ollama_json(
+    prompt: &str,
+    image_base64: Option<&str>,
+    model: String,
+) -> Result<(serde_json::Value, String), (StatusCode, Json<serde_json::Value>)> {
+    let base = std::env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
+    let image = image_base64.map(|img| img.find("base64,").map(|i| &img[i + 7..]).unwrap_or(img));
+    let mut body = json!({
+        "model": model, "prompt": prompt, "stream": false, "format": "json",
+        // Room for a full recipe page plus the reply; Ollama's default context is smaller.
+        "options": { "num_ctx": 8192 },
+    });
+    if let Some(image) = image {
+        body["images"] = json!([image]);
+    }
+
+    tracing::info!("Sending request to Ollama model '{}' at {}", model, base);
     let res = reqwest::Client::new()
         .post(format!("{base}/api/generate"))
-        .json(&json!({ "model": model, "prompt": prompt, "images": [image], "stream": false, "format": "json" }))
+        .json(&body)
         .send()
         .await
         .map_err(|e| {

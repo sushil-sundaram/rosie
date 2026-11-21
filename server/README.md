@@ -10,6 +10,7 @@ server/
 └── src/
     ├── main.rs       # Config, SQLite pool, static files, /api nesting
     ├── routes.rs     # REST handlers, bill & recurrence logic, Ollama calls
+    ├── recipes.rs    # Recipes, ingredient parsing, import (link, photo, text)
     ├── sync.rs       # Live-update feed (Server-Sent Events)
     └── models.rs     # Serde / FromRow types
 ```
@@ -23,6 +24,7 @@ server/
 | `PORT` | `3000` | |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | |
 | `OLLAMA_VISION_MODEL` | `llama3.2-vision` | Per-request override: `model` in the scan body |
+| `OLLAMA_TEXT_MODEL` | `OLLAMA_VISION_MODEL` | Reads pasted recipes and pages without recipe data |
 | `TZ` | system | Used for “today” when logging a paid bill |
 
 ## API
@@ -41,8 +43,9 @@ All routes are served under `/api` (for example `GET /api/pantry`). Request and 
 | `POST` | `/pantry/batch` | `{items:[…], expense_id?}` — tops up items with the same name+unit, otherwise inserts; links to an expense |
 | `POST` | `/pantry/scan-photo` | `{image_base64}` → `{items:[{name, quantity, unit}]}` |
 | **Recipes & meals** | | |
-| `GET` · `POST` | `/recipes` | `{name, instructions}` |
-| `DELETE` | `/recipes/{id}` | Also unlinks it from planned meals |
+| `GET` · `POST` | `/recipes` | `{name, instructions, servings?, time_minutes?, source_url?, image_url?, ingredients: ["1 cup toor dal", …]}`; POST returns `{id}`. GET returns each ingredient as `{text, name, quantity, unit}` |
+| `PUT` · `DELETE` | `/recipes/{id}` | Replace a recipe and its ingredients / remove it (also unlinks it from planned meals) |
+| `POST` | `/recipes/import` | One of `{url}`, `{text}` or `{image_base64}` → an unsaved draft `{name, servings, time_minutes, source_url, image_url, ingredients, instructions, method}`; `method` is `structured` or `ai` |
 | `GET` · `POST` | `/meals` | `{date, slot, title, recipe_id?}` — slot is breakfast, lunch or dinner |
 | `PATCH` · `DELETE` | `/meals/{id}` | PATCH `{date}` to reschedule |
 | **Chores & bills** | | |
@@ -59,11 +62,15 @@ All routes are served under `/api` (for example `GET /api/pantry`). Request and 
 
 - **Bills.** Setting a bill's status to `done` inserts an expense dated today and stores its `expense_id`; moving it out of `done` deletes that expense. Repeated `done` calls never log twice.
 - **Recurrence.** Completing a repeating chore/bill creates the next one (`next_id`). Monthly/yearly keep the original day of month (`repeat_day`), clamped to the month's end: 31 Jan → 28 Feb → 31 Mar. Undoing removes the next occurrence only if nobody has touched it.
-- **Concurrency.** Bill/recurrence updates and pantry batches run in `BEGIN IMMEDIATE` transactions.
+- **Concurrency.** Bill/recurrence updates, pantry batches and recipe saves run in `BEGIN IMMEDIATE` transactions.
+- **Recipe import.** A link is read from the page's schema.org `Recipe` JSON-LD when present; otherwise the page text goes to the local model. Links to `localhost`, private and Tailscale addresses are refused, including after redirects. Pages are limited to 5 MB and 20 s.
+- **Ingredients.** Each line is kept as written and parsed into `name`, `quantity` and `unit` (`1½ cups basmati rice, rinsed` → `basmati rice`, 1.5, `cup`). Lines without an amount get quantity 0.
+- **Links.** Only `http(s)` URLs are stored for `source_url` and `image_url`.
 
 ## Commands
 
 ```bash
 cargo run      # serves ../web on :3000 using ../data/rosie.db
 cargo check
+cargo test     # ingredient parsing, recipe extraction, link safety
 ```

@@ -26,12 +26,14 @@ Rosie is a self-hosted household management application for planning meals, trac
 | **Expenses** | Daily spend calendar, monthly budgets per category with remaining-budget pacing, bills payable, and receipt scanning. |
 | **Bills** | Bills are scheduled as chores on their due date. Marking a bill paid records it as an expense; reversing the payment removes that expense. Monthly and yearly bills generate the next occurrence on payment and show upcoming occurrences on the calendar. |
 | **Pantry** | Inventory with low-stock and expiry indicators, item entry from a photograph, and links from purchased items to the originating expense. |
-| **Recipes** | Recipe collection with ingredients and instructions. |
+| **Recipes** | Recipe collection with ingredients, steps, servings, time and photo. Import from a recipe website link, a photo of a cookbook page or handwritten card, or pasted text; every import is shown for review before it is saved. |
 | **Settings** | Household currency (shared across devices; Indian rupee by default) and per-device dark, light or system theme. |
 
 **Multi-user by default.** All devices read and write the same database. Changes are pushed to every open session in real time, and concurrent edits are handled safely (see [Architecture](#architecture)).
 
-**Local AI.** Receipt and pantry-photo recognition use a vision model served by [Ollama](https://ollama.com) on the host. Results are always presented for review before they are saved.
+**Local AI.** Receipt, pantry-photo and recipe recognition use a model served by [Ollama](https://ollama.com) on the host. Results are always presented for review before they are saved.
+
+**Recipe import.** Most recipe websites publish their recipes as structured data ([schema.org Recipe](https://schema.org/Recipe)). Rosie reads that directly, which is exact and immediate; the local model is used only for pages without it, for photos and for pasted text. Some sites block automated requests; for those, paste the recipe text or upload a screenshot.
 
 ## Getting started
 
@@ -48,7 +50,7 @@ docker compose up -d --build
 
 The application is available at **http://localhost:3000**. Data is stored in `./data/rosie.db` and persists across container rebuilds.
 
-To enable receipt and photo recognition, install the vision model on the host:
+To enable receipt, photo and recipe recognition, install the vision model on the host:
 
 ```bash
 ollama pull llama3.2-vision
@@ -74,7 +76,8 @@ Environment variables are set in [`docker-compose.yml`](docker-compose.yml).
 | `DATABASE_URL` | `sqlite:///app/data/rosie.db` | SQLite database location (mounted from `./data`). |
 | `TZ` | `Asia/Kolkata` | Household time zone; determines the date recorded when a bill is paid. |
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama endpoint. The container uses host networking so that it can reach an Ollama instance bound to the host's loopback interface. |
-| `OLLAMA_VISION_MODEL` | `llama3.2-vision` | Vision model used for receipts and pantry photos. |
+| `OLLAMA_VISION_MODEL` | `llama3.2-vision` | Vision model used for receipts, pantry photos and recipe photos. |
+| `OLLAMA_TEXT_MODEL` | value of `OLLAMA_VISION_MODEL` | Optional. Model used to read recipe text and web pages without recipe data. A smaller text model, such as `qwen2.5:7b`, is faster. |
 
 ## Access from other devices
 
