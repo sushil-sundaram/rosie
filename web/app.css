@@ -122,7 +122,9 @@ button, input, select, textarea {
   border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px;
 }
 input, select, textarea { min-width: 0; }
-input:focus, select:focus, textarea:focus, button:focus-visible { outline: none; border-color: var(--purple); }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--purple); }
+/* Keyboard focus must always be visible, including on borderless icon buttons. */
+button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--purple); outline-offset: 2px; }
 textarea { width: 100%; min-height: 90px; resize: vertical; }
 button { cursor: pointer; background: transparent; color: var(--fg); }
 button:hover { border-color: var(--muted); }
@@ -321,3 +323,6 @@ ol.steps li::marker { color: var(--purple); font-family: var(--mono); }
 label.field { display: flex; align-items: center; gap: 8px; }
 label.field input { flex: 1; min-width: 0; }
 ul.list li:has(> details.recipe) { align-items: flex-start; }
+
+button.link { border: 0; background: none; padding: 0; color: var(--purple); font: inherit; text-decoration: underline; cursor: pointer; }
+.split > *, .main-col { min-width: 0; }

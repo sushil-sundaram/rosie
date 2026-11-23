@@ -93,7 +93,6 @@ pub struct Expense {
 #[derive(Debug, Deserialize)]
 pub struct ScanReceiptRequest {
     pub image_base64: String,
-    pub model: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, FromRow)]

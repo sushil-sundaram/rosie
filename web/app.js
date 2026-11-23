@@ -13,7 +13,8 @@ async function api(path, opts = {}) {
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
   let data = null;
-  try { data = await res.json(); } catch { /* empty body */ }
+  const text = await res.text().catch(() => "");
+  try { data = text ? JSON.parse(text) : null; } catch { data = res.ok ? null : { error: text.slice(0, 200) }; }
   if (!res.ok) {
     // Someone else removed/changed it: refresh so the screen matches.
     if (res.status === 404 && opts.method && opts.method !== "GET") setTimeout(() => sync.refreshSoon(), 0);
@@ -35,6 +36,8 @@ function h(tag, attrs, ...kids) {
     if (v == null || v === false) continue;
     if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
     else if (k === "class") el.className = (el.className + " " + v).trim();
+    // CSSOM, not a style attribute: the content security policy blocks inline style attributes.
+    else if (k === "style") el.style.cssText = v;
     else el.setAttribute(k, v === true ? "" : v);
   }
   for (const kid of kids.flat(Infinity)) {
@@ -77,6 +80,8 @@ const money = (n, digits) => {
 };
 /** Whole-unit amount for tight spaces (calendar chips, stats). */
 const moneyShort = (n) => money(Math.round(Number(n) || 0), 0);
+/** Rounds to cents: 1.1 + 2.2 must equal 3.3 when comparing spend with a budget. */
+const cents = (n) => Math.round((Number(n) || 0) * 100);
 const fmtQty = (n) => (Number.isInteger(n) ? n : Number(n).toFixed(2).replace(/0+$/, "").replace(/\.$/, ""));
 const formData = (form) => Object.fromEntries(new FormData(form).entries());
 
@@ -290,7 +295,7 @@ function projected(chores) {
     if (!c.repeat || c.status === "done" || c.next_id || !c.due_date) continue;
     let d = c.due_date;
     for (let i = 0; i < 600; i++) {
-      d = nextDate(d, c.repeat, c.repeat_day);
+      d = nextDate(d, c.repeat, c.repeat_day || Number(c.due_date.slice(8)));
       if (d > until) break;
       if (d >= from) out.push({ chore: c, date: d });
     }
@@ -495,47 +500,61 @@ function pantryReview() {
 
 const asPending = (items) => items.map((i) => ({ name: i.name, quantity: i.quantity, unit: i.unit, keep: true }));
 
+/*
+ * The last scanned receipt, waiting to be added. Kept outside the form so a
+ * re-render (live sync, picking another day) doesn't throw the scan away.
+ */
+let scannedReceipt = null;
+
 function expenseForm(date, withScan = false) {
-  let scanned = []; // line items read from the last scanned receipt
+  const r = withScan ? scannedReceipt : null;
+  const day = (r && r.date) || date;
   const form = h("form.row", {
     onsubmit: async (e) => {
       e.preventDefault();
+      if (form.dataset.busy) return; // no double submit
       const d = formData(e.target);
       const title = d.title.trim();
+      form.dataset.busy = "1";
       try {
         const out = await api("/expenses", { method: "POST", body: { title, amount: Number(d.amount), category: d.category, date: d.date || date } });
         toast(`added ${title}`);
-        if (scanned.length) pendingItems = { expense_id: out.id, label: title, items: asPending(scanned) };
+        if (r && r.items.length) pendingItems = { expense_id: out.id, label: title, items: asPending(r.items) };
+        if (r) scannedReceipt = null;
         render();
-      } catch (err) { fail(err); }
+      } catch (err) { fail(err); } finally { delete form.dataset.busy; }
     },
   },
-    h("input", { name: "title", placeholder: "what", required: true, autocomplete: "off", "aria-label": "expense" }),
-    h("input.w-sm", { name: "amount", type: "number", step: "0.01", min: "0", placeholder: "0.00", required: true, "aria-label": "amount" }),
-    h("select.w-sm", { name: "category", "aria-label": "category" }, CATEGORIES.map((c) => h("option", { value: c }, c.toLowerCase()))),
-    h("input", { name: "date", type: "hidden", value: date }),
+    h("input", { name: "title", placeholder: "what", required: true, autocomplete: "off", "aria-label": "expense", value: r ? r.title : null }),
+    h("input.w-sm", { name: "amount", type: "number", step: "any", min: "0", placeholder: "0.00", required: true, "aria-label": "amount", value: r && r.amount ? r.amount : null }),
+    h("select.w-sm", { name: "category", "aria-label": "category" },
+      CATEGORIES.map((c) => h("option", { value: c, selected: r && r.category === c }, c.toLowerCase()))),
+    h("input", { name: "date", type: "hidden", value: day }),
     h("button.primary", { type: "submit" }, "add"),
   );
   if (!withScan) return form;
 
   const scan = photoButton("scan receipt", "reading receipt", "/expenses/scan-receipt", (out) => {
-    const f = form.elements;
-    f.title.value = out.title || "";
-    f.amount.value = out.amount || "";
-    f.category.value = CATEGORIES.includes(out.category) ? out.category : "Other";
-    scanned = out.items || [];
-    const notes = [];
-    if (/^\d{4}-\d{2}-\d{2}$/.test(out.date || "")) {
-      f.date.value = out.date;
-      if (out.date !== date) notes.push(`dated ${fmtDay(out.date)} — saved on that day`);
-    }
-    if (scanned.length) notes.push(`${scanned.length} item${scanned.length > 1 ? "s" : ""} can go to the pantry after you add`);
+    scannedReceipt = {
+      title: out.title || "",
+      amount: out.amount || "",
+      category: CATEGORIES.includes(out.category) ? out.category : "Other",
+      date: /^\d{4}-\d{2}-\d{2}$/.test(out.date || "") ? out.date : null,
+      items: out.items || [],
+    };
     toast("receipt read — check it, then add");
-    f.title.focus();
-    return notes.join(" · ");
+    render();
+    return "";
   });
 
-  return h("div", form, scan);
+  const notes = [];
+  if (r) {
+    if (r.date && r.date !== date) notes.push(`dated ${fmtDay(r.date)} — saved on that day`);
+    if (r.items.length) notes.push(`${r.items.length} item${r.items.length > 1 ? "s" : ""} can go to the pantry after you add`);
+  }
+  return h("div", form, scan,
+    r ? h("p.hint", "scanned receipt — check it, then add", notes.length ? ` · ${notes.join(" · ")}` : "", " · ",
+      h("button.link", { type: "button", onclick: () => { scannedReceipt = null; render(); } }, "discard")) : null);
 }
 
 /* ================= views ================= */
@@ -580,7 +599,7 @@ views.home = async (root) => {
     [
       h("div.stats",
         stat(moneyShort(spend), budgetTotal ? `spent of ${moneyShort(budgetTotal)} budget` : "spent this month",
-          budgetTotal && spend > budgetTotal ? "c-red" : "c-pink"),
+          budgetTotal && cents(spend) > cents(budgetTotal) ? "c-red" : "c-pink"),
         stat(`${mChores.filter((c) => c.status === "done").length}/${mChores.length}`, "chores done this month", "c-orange"),
         stat(meals.filter((m) => inMonth(m.date)).length, "meals planned this month", "c-cyan"),
         stat(low.length, "pantry items low", low.length ? "c-red" : "c-green"),
@@ -700,7 +719,7 @@ views.meals = async (root) => {
 
 /* ---- expenses: calendar, budget, bills ---- */
 let expenseAdd = "expense";
-const budgetColor = (spent, budget) => (!budget ? "var(--muted)" : spent > budget ? "var(--red)" : spent >= budget * 0.8 ? "var(--orange)" : "var(--green)");
+const budgetColor = (spent, budget) => (!budget ? "var(--muted)" : cents(spent) > cents(budget) ? "var(--red)" : cents(spent) >= cents(budget) * 0.8 ? "var(--orange)" : "var(--green)");
 
 views.expenses = async (root) => {
   const [expenses, budgets, chores, pantry] = await Promise.all([api("/expenses"), api("/budgets"), api("/chores"), api("/pantry")]);
@@ -742,18 +761,18 @@ views.expenses = async (root) => {
           h("span.num", moneyShort(spent)),
           h("span.meta", " / "),
           h("input.budget", {
-            type: "number", min: "0", step: "100", value: budget || "", placeholder: "set",
+            type: "number", min: "0", step: "any", value: budget || "", placeholder: "set",
             "aria-label": `monthly budget for ${cat}`, title: "monthly budget — press enter to save",
             onchange: (e) => saveBudget(cat, e.target.value),
           }),
         ),
       ),
       h("div.bar", h("i", { style: `width:${budget ? pct : 0}%;background:${budgetColor(spent, budget)}` })),
-      budget && spent > budget ? h("span.meta.c-red", `over by ${moneyShort(spent - budget)}`) : null,
+      budget && cents(spent) > cents(budget) ? h("span.meta.c-red", `over by ${moneyShort(spent - budget)}`) : null,
     ));
   };
 
-  const remaining = budgetTotal - total;
+  const remaining = (cents(budgetTotal) - cents(total)) / 100;
   root.append(eyebrow("expenses"), split(
     [
       calendar({
@@ -810,7 +829,7 @@ views.expenses = async (root) => {
 };
 
 /* ---- theme (per device) ---- */
-const currentTheme = () => document.documentElement.dataset.theme || "dark";
+const currentTheme = () => document.documentElement.dataset.theme || "system";
 function setTheme(t) {
   document.documentElement.dataset.theme = t;
   try { localStorage.setItem("rosie.theme", t); } catch { /* storage unavailable */ }
@@ -961,6 +980,8 @@ views.pantry = async (root) => {
  * the view so live-sync re-renders don't lose it.
  */
 let recipeDraft = null;
+let recipeImporting = false;
+const openRecipes = new Set(); // ids of expanded recipe cards // an import is in flight (survives re-renders)
 
 const lines = (s) => String(s || "").split("\n").map((l) => l.trim()).filter(Boolean);
 const fmtTime = (m) => (!m ? "" : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}`);
@@ -985,7 +1006,10 @@ function recipeImport() {
     "aria-label": "recipe link or text",
   });
   const go = h("button.primary", { type: "submit" }, "import");
+  if (recipeImporting) { go.disabled = true; status.className = "spinner"; status.textContent = "still reading the last import"; }
   const run = async (body, busyText) => {
+    if (recipeImporting) return;
+    recipeImporting = true;
     go.disabled = true;
     status.className = "spinner";
     status.textContent = busyText;
@@ -997,14 +1021,15 @@ function recipeImport() {
       fail(err);
       status.className = "meta";
       status.textContent = "";
-    } finally { go.disabled = false; }
+    } finally { recipeImporting = false; go.disabled = false; }
   };
   const form = h("form.stack", {
     onsubmit: (e) => {
       e.preventDefault();
       const v = box.value.trim();
       if (!v) return toast("paste a link or some recipe text", true);
-      if (/^https?:\/\/\S+$/i.test(v)) run({ url: v }, "reading the page");
+      const link = /^https?:\/\/\S+$/i.test(v) ? v : /^(www\.)?[\w-]+(\.[\w-]+)+\/\S*$/i.test(v) ? `https://${v}` : null;
+      if (link) run({ url: link }, "reading the page");
       else run({ text: v }, "reading it with local AI — this can take a minute");
     },
   }, box);
@@ -1072,7 +1097,7 @@ function stepGroups(steps) {
   const out = [];
   let ol = null;
   for (const s of steps) {
-    if (s.endsWith(":") && s.length < 60) { out.push(h("p.step-section", s.slice(0, -1))); ol = null; continue; }
+    if (s.endsWith(":") && s.length < 60 && (/^for\b/i.test(s) || s.split(/\s+/).length <= 3)) { out.push(h("p.step-section", s.slice(0, -1))); ol = null; continue; }
     if (!ol) { ol = h("ol.steps"); out.push(ol); }
     ol.append(h("li", s));
   }
@@ -1083,14 +1108,14 @@ function recipeCard(r) {
   const steps = lines(r.instructions);
   const facts = [fmtTime(r.time_minutes), r.servings && (/^\d+$/.test(r.servings) ? `serves ${r.servings}` : r.servings)].filter(Boolean);
   return [
-    h("details.grow.recipe",
+    h("details.grow.recipe", { open: openRecipes.has(r.id), ontoggle: (e) => { if (e.target.open) openRecipes.add(r.id); else openRecipes.delete(r.id); } },
       h("summary", h("span.title", r.name), facts.length ? h("span.meta", " · " + facts.join(" · ")) : null),
       h("div.recipe-body",
         r.image_url ? h("img.photo", { src: r.image_url, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }) : null,
         r.ingredients.length ? [h("h4", `ingredients (${r.ingredients.length})`), h("ul.ingredients", r.ingredients.map((i) => h("li", i.text)))] : null,
         steps.length ? [h("h4", "steps"), stepGroups(steps)] : null,
         h("div.scan",
-          h("button", { type: "button", onclick: () => { recipeDraft = asDraft(r); render(); window.scrollTo(0, 0); } }, "edit"),
+          h("button", { type: "button", onclick: async () => { recipeDraft = asDraft(r); await render(); window.scrollTo(0, 0); } }, "edit"),
           r.source_url ? h("a.meta", { href: r.source_url, target: "_blank", rel: "noopener noreferrer" }, hostOf(r.source_url) + " ↗") : null))),
     delBtn(`/recipes/${r.id}`, r.name),
   ];
@@ -1109,9 +1134,15 @@ views.recipes = async (root) => {
 
 /* ================= router ================= */
 
+let renderGen = 0;
+
 async function render() {
+  // Only the newest render may update the screen: a slow earlier one (quick
+  // navigation, a live-sync refresh) must not overwrite it when it finishes.
+  const gen = ++renderGen;
+  sync.markFresh();
   const route = (location.hash.replace(/^#\/?/, "").split("/")[0]) || "home";
-  const view = views[route] || views.home;
+  const view = Object.hasOwn(views, route) ? views[route] : views.home;
   for (const a of document.querySelectorAll("#nav a, a.gear")) {
     const r = a.getAttribute("href").replace(/^#\/?/, "") || "home";
     a.classList.toggle("active", r === route);
@@ -1123,10 +1154,14 @@ async function render() {
   next.append = (...kids) => Element.prototype.append.apply(next, kids.flat(Infinity).filter((k) => k != null && k !== false));
   const y = window.scrollY;
   try {
+    // Settings can change on another device (currency): load them with the view.
+    const s = await api("/settings").catch(() => null);
+    if (s) settings = { ...settings, ...s };
     await view(next);
   } catch (err) {
     next.replaceChildren(h("h1", "offline"), h("p.sub.c-red", err.message), h("button", { onclick: render }, "retry"));
   }
+  if (gen !== renderGen) return;
   root.replaceChildren(next);
   window.scrollTo(0, y);
   if (focusSel) { focusSel = false; const c = root.querySelector(".cell.sel"); if (c) c.focus(); }
@@ -1146,7 +1181,7 @@ const sync = (() => {
   let timer;
   let wasDown = false;
 
-  const setDot = (state, title) => { dot.className = `sync ${state}`; dot.title = title; };
+  const setDot = (state, title) => { dot.className = `sync ${state}`; dot.title = title; dot.setAttribute("aria-label", title); };
   const busy = () => {
     const a = document.activeElement;
     if (a && a.closest && a.closest("#view") && a.matches("input, textarea, select")) return true;
@@ -1161,28 +1196,45 @@ const sync = (() => {
     render();
   };
   const refreshSoon = () => { stale = true; clearTimeout(timer); timer = setTimeout(tryRefresh, 200); };
+  /** Called by render(): whatever was pending is now on screen. */
+  const markFresh = () => {
+    if (!stale) return;
+    stale = false;
+    if (dot.classList.contains("pending")) setDot("live", "live — changes from other devices appear automatically");
+  };
 
   dot.addEventListener("click", () => tryRefresh(true));
   document.addEventListener("focusout", () => setTimeout(tryRefresh, 50));
 
+  let retry = 1000;
   function connect() {
     if (!window.EventSource) return;
     const es = new EventSource(API + "/events");
     es.onopen = () => {
+      retry = 1000;
       setDot("live", "live — changes from other devices appear automatically");
       if (wasDown) { wasDown = false; refreshSoon(); } // catch up on anything missed
     };
-    es.onerror = () => { wasDown = true; setDot("", "offline — reconnecting…"); }; // EventSource retries by itself
+    es.onerror = () => {
+      wasDown = true;
+      setDot("", "offline — reconnecting…");
+      // EventSource retries network drops itself, but gives up for good after
+      // an error response (a proxy 502, say): then reconnect ourselves.
+      if (es.readyState === EventSource.CLOSED) {
+        setTimeout(connect, retry);
+        retry = Math.min(retry * 2, 30000);
+      }
+    };
     es.onmessage = (e) => {
       let by = "";
       try { by = JSON.parse(e.data).by; } catch { /* keep-alive */ }
       if (by !== CLIENT_ID) refreshSoon();
     };
   }
-  return { connect, refreshSoon };
+  return { connect, refreshSoon, markFresh };
 })();
 
 window.addEventListener("hashchange", () => { window.scrollTo(0, 0); render(); });
 sync.connect();
 syncThemeColor();
-api("/settings").then((s) => { settings = { ...settings, ...s }; }).catch(() => { /* keep defaults */ }).finally(render);
+render();

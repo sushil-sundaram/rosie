@@ -12,6 +12,8 @@ Rosie is a self-hosted household management application for planning meals, trac
 - [Getting started](#getting-started)
 - [Configuration](#configuration)
 - [Access from other devices](#access-from-other-devices)
+- [Security](#security)
+- [Backups](#backups)
 - [Architecture](#architecture)
 - [Development](#development)
 - [Project structure](#project-structure)
@@ -29,7 +31,7 @@ Rosie is a self-hosted household management application for planning meals, trac
 | **Recipes** | Recipe collection with ingredients, steps, servings, time and photo. Import from a recipe website link, a photo of a cookbook page or handwritten card, or pasted text; every import is shown for review before it is saved. |
 | **Settings** | Household currency (shared across devices; Indian rupee by default) and per-device dark, light or system theme. |
 
-**Multi-user by default.** All devices read and write the same database. Changes are pushed to every open session in real time, and concurrent edits are handled safely (see [Architecture](#architecture)).
+**Multi-user by default.** All devices read and write the same database. Changes are pushed to every open session in real time, and simultaneous changes such as stock adjustments and bill payments are applied safely (see [Architecture](#architecture)). Edits to the same recipe or pantry item are last-write-wins.
 
 **Local AI.** Receipt, pantry-photo and recipe recognition use a model served by [Ollama](https://ollama.com) on the host. Results are always presented for review before they are saved.
 
@@ -78,6 +80,8 @@ Environment variables are set in [`docker-compose.yml`](docker-compose.yml).
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama endpoint. The container uses host networking so that it can reach an Ollama instance bound to the host's loopback interface. |
 | `OLLAMA_VISION_MODEL` | `llama3.2-vision` | Vision model used for receipts, pantry photos and recipe photos. |
 | `OLLAMA_TEXT_MODEL` | value of `OLLAMA_VISION_MODEL` | Optional. Model used to read recipe text and web pages without recipe data. A smaller text model, such as `qwen2.5:7b`, is faster. |
+| `ALLOWED_HOSTS` | *(none)* | Optional, comma-separated. Extra host names Rosie will answer to. IP addresses, `localhost`, single-word names, `*.local`, `*.lan`, `*.home.arpa` and Tailscale `*.ts.net` names always work. |
+| `BIND_ADDR` | `0.0.0.0` | Interface to listen on, e.g. a single LAN address. |
 
 ## Access from other devices
 
@@ -88,6 +92,23 @@ sudo firewall-cmd --permanent --add-port=3000/tcp && sudo firewall-cmd --reload
 ```
 
 Devices on the same network can then use `http://<host-ip>:3000`. For access away from home, a private overlay network such as [Tailscale](https://tailscale.com) is recommended over exposing the port to the internet.
+
+If you reach Rosie by a custom domain name, add it to `ALLOWED_HOSTS`; other names are refused (HTTP 421).
+
+## Security
+
+Rosie has no sign-in: anyone who can reach the port can use it, so keep it on the home network or Tailscale. Within that, it protects the household's data from other websites:
+
+- **No cross-site access.** The API sends no CORS headers, so pages on other sites can't read it, and writes carrying another site's `Origin` are refused.
+- **DNS rebinding blocked.** Requests are only served for IP addresses, `localhost` and home-network names (plus `ALLOWED_HOSTS`).
+- **Recipe links can't reach the home network.** Every address a link resolves to, including after redirects, must be public.
+- **Headers.** A content security policy (no inline scripts, no framing), `nosniff` and `no-referrer`.
+- **Container.** Runs as an unprivileged user with a read-only filesystem, no Linux capabilities and `no-new-privileges`. `./data` must be owned by uid 1000.
+- **Input.** Dates, amounts, names and option values are validated; requests are limited to 1 MB (20 MB for photos).
+
+## Backups
+
+The whole household's data is the file `data/rosie.db`. Back it up while Rosie is stopped (`docker compose stop`, copy the file, `docker compose start`), or online with `sqlite3 data/rosie.db ".backup data/backups/rosie-$(date +%F).db"`. Copying the file while Rosie is running can produce an inconsistent copy.
 
 ## Architecture
 

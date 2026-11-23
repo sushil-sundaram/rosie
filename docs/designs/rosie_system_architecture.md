@@ -127,4 +127,4 @@ All endpoints below are served under `/api`. The full reference is in [`server/R
 
 - **Server**: `cargo check` must build with zero warnings; `cargo test` covers ingredient parsing, recipe extraction and link safety.
 - **Web client**: `node --check web/app.js` must pass.
-- **Unified command**: `./scripts/verify_all.sh` runs both.
+- **Unified command**: `./scripts/verify_all.sh` runs `cargo check` (warnings as errors), `cargo test` and `node --check`.
