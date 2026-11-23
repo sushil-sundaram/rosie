@@ -7,11 +7,7 @@
   <title>Rosie</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6' fill='%23bd93f9'/></svg>">
   <link rel="stylesheet" href="app.css">
-  <script>
-    // Apply the saved theme before first paint so there's no flash.
-    try { document.documentElement.dataset.theme = localStorage.getItem("rosie.theme") || "dark"; }
-    catch { document.documentElement.dataset.theme = "dark"; }
-  </script>
+  <script src="theme.js"></script>
 </head>
 <body>
   <header class="top">
@@ -45,7 +41,7 @@
       </a>
     </div>
   </header>
-  <main id="view" aria-live="polite"></main>
+  <main id="view"></main>
   <div id="toast" role="status"></div>
   <script src="app.js"></script>
 </body>

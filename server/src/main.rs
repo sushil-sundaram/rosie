@@ -1,3 +1,4 @@
+mod guard;
 mod models;
 mod recipes;
 mod routes;
@@ -6,8 +7,8 @@ mod sync;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
 use tower_http::{
-    cors::CorsLayer,
     services::{ServeDir, ServeFile},
+    trace::TraceLayer,
 };
 
 #[tokio::main]
@@ -24,6 +25,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let connection_options = SqliteConnectOptions::from_str(&db_url)?
         .create_if_missing(true)
+        // Relied on for meal_plan.recipe_id and recipe_ingredients; stated, not assumed.
+        .foreign_keys(true)
+        .busy_timeout(std::time::Duration::from_secs(10))
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
 
     let pool = SqlitePoolOptions::new()
@@ -45,12 +49,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = axum::Router::new()
         .nest("/api", api)
         .fallback_service(static_files)
-        // Photos/receipts arrive as base64 JSON; the web app downsizes them, this is headroom.
-        .layer(axum::extract::DefaultBodyLimit::max(20 * 1024 * 1024))
-        .layer(CorsLayer::permissive());
+        // Ordinary requests are small; the photo routes raise this for themselves.
+        .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
+        // No CORS layer: the web app is served from this same origin, so the
+        // browser's same-origin rule keeps other websites out of the API.
+        .layer(axum::middleware::from_fn(guard::guard))
+        .layer(TraceLayer::new_for_http());
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
+    let bind = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let listener = tokio::net::TcpListener::bind(format!("{bind}:{port}")).await?;
     tracing::info!("listening on {}", listener.local_addr()?);
     axum::serve(listener, app).await?;
 
