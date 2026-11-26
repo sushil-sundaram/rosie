@@ -167,4 +167,5 @@ export function clearCache() {
   dirty.clear();
   inflight.clear();
   idbClear();
+  if (typeof caches !== "undefined") caches.delete("rosie-api-v1").catch(() => {});
 }

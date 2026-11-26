@@ -58,7 +58,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
 - [x] **Convert Ollama AI scans into async background jobs** (`server/src/routes.rs:772-785`, `web/app.js:449`)
   - Change `/expenses/scan-receipt`, `/pantry/scan-photo`, and `/recipes/import` (AI paths) to return `202 Accepted` with a `job_id`, execute Ollama in a background Tokio task, and emit job completion over `/api/events` (or `GET /api/jobs/{id}`).
   - Prevents lost results when a phone screen locks or the user switches tabs during 30–300 s local inference.
-- [ ] **Make Rosie an installable PWA with offline reads** (`web/index.html`, new `manifest.webmanifest` + `sw.js`)
+- [x] **Make Rosie an installable PWA with offline reads** (`web/index.html`, new `manifest.webmanifest` + `sw.js`)
   - Add Web App Manifest (app icon, standalone display mode) and a lightweight Service Worker caching the app shell + read-only pantry/recipes for grocery store / poor-signal reliability.
   - Register **Web Share Target** in the manifest so mobile browsers can share a recipe link straight into Rosie.
 - [x] **Split `web/app.js` into native ES modules** (`web/app.js`, `web/index.html`)
