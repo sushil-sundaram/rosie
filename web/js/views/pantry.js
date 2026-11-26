@@ -1,6 +1,6 @@
 import { api } from "../api.js";
 import { addDays, fmtDay, parseISO, today } from "../dates.js";
-import { delBtn, fail, formData, h, list, toast } from "../dom.js";
+import { delBtn, fail, formData, h, list, segmented, toast } from "../dom.js";
 import { fmtQty, money, moneyShort } from "../money.js";
 import { defaultLowThreshold, isPantryLow } from "../pantry_match.js";
 import { render } from "../router.js";
@@ -8,6 +8,9 @@ import { cached } from "../store.js";
 import { cal } from "../components/calendar.js";
 import { asPending, editBtn, pantryReview, photoButton, setPendingItems } from "../components/domain.js";
 import { showModal } from "../shortcuts.js";
+
+let pantryQuery = "";
+let pantryFilter = "all";
 
 export async function pantryView(root) {
   const [items, expenses] = await Promise.all([
@@ -136,25 +139,77 @@ export async function pantryView(root) {
   }, "pantry");
 
   const low = items.filter(isPantryLow);
+  const expiring = items.filter((i) => i.expires_on && i.expires_on <= addDays(t, 3));
   // Low items first, then alphabetical.
   const sorted = [...items].sort((a, b) => isPantryLow(b) - isPantryLow(a) || a.name.localeCompare(b.name));
 
+  const listWrap = h("div.pantry-list-wrap");
+  const filterWrap = h("div.filter-bar");
+
+  const renderFiltered = () => {
+    const q = pantryQuery.trim().toLowerCase();
+    const visible = sorted.filter((it) => {
+      if (pantryFilter === "low" && !isPantryLow(it)) return false;
+      if (pantryFilter === "expiring" && !(it.expires_on && it.expires_on <= addDays(t, 3))) return false;
+      if (q && !it.name.toLowerCase().includes(q) && !(it.unit || "").toLowerCase().includes(q)) return false;
+      return true;
+    });
+    const emptyMsg = sorted.length
+      ? "No matching pantry items"
+      : "Your pantry is empty — add items, or snap a photo of your groceries";
+    listWrap.replaceChildren(
+      list(visible, (it) => [
+        h("span.grow.title", it.name),
+        expiryTag(it),
+        boughtTag(it),
+        h("button.icon", { title: "Decrease", "aria-label": `Decrease ${it.name}`, onclick: () => adjust(it, -1), disabled: it.quantity <= 0 }, "−"),
+        h("span.num", { class: isPantryLow(it) ? "c-red" : "c-green" }, `${fmtQty(it.quantity)} ${it.unit}`),
+        h("button.icon", { title: "Increase", "aria-label": `Increase ${it.name}`, onclick: () => adjust(it, 1) }, "+"),
+        editBtn(it.name, () => openEditModal(it)),
+        delBtn(`/pantry/${it.id}`, it.name),
+      ], emptyMsg),
+    );
+  };
+
+  const renderFilters = () => {
+    const seg = segmented(
+      [["all", `All (${items.length})`], ["low", `Low (${low.length})`], ["expiring", `Expiring (${expiring.length})`]],
+      pantryFilter,
+      (k) => {
+        pantryFilter = k;
+        renderFilters();
+        renderFiltered();
+      },
+      "Pantry filter",
+    );
+    const segSlot = filterWrap.querySelector(".seg");
+    if (segSlot) segSlot.replaceWith(seg);
+    else filterWrap.append(seg);
+  };
+
+  const searchInput = h("input.search-input", {
+    type: "search",
+    value: pantryQuery,
+    placeholder: "Search pantry…",
+    "aria-label": "Search pantry",
+    "data-shortcut-search": "true",
+    oninput: (e) => {
+      pantryQuery = e.target.value;
+      renderFiltered();
+    },
+  });
+  filterWrap.append(searchInput);
+  renderFilters();
+  renderFiltered();
+
   root.append(h("div.narrow",
     h("h1", "Pantry"),
-    h("p.sub", `${items.length} items · ${low.length} low · ${items.filter((i) => i.expires_on && i.expires_on <= addDays(t, 3)).length} expiring soon`),
+    h("p.sub", `${items.length} items · ${low.length} low · ${expiring.length} expiring soon`),
     form,
     photo,
     pantryReview(),
     h("h2", "Inventory"),
-    list(sorted, (it) => [
-      h("span.grow.title", it.name),
-      expiryTag(it),
-      boughtTag(it),
-      h("button.icon", { title: "Decrease", "aria-label": `Decrease ${it.name}`, onclick: () => adjust(it, -1), disabled: it.quantity <= 0 }, "−"),
-      h("span.num", { class: isPantryLow(it) ? "c-red" : "c-green" }, `${fmtQty(it.quantity)} ${it.unit}`),
-      h("button.icon", { title: "Increase", "aria-label": `Increase ${it.name}`, onclick: () => adjust(it, 1) }, "+"),
-      editBtn(it.name, () => openEditModal(it)),
-      delBtn(`/pantry/${it.id}`, it.name),
-    ], "Your pantry is empty — add items, or snap a photo of your groceries"),
+    filterWrap,
+    listWrap,
   ));
 }

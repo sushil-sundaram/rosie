@@ -89,7 +89,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
   - Add **Cook Mode** on recipes (large step typography, checkable ingredients/steps, Screen Wake Lock via `navigator.wakeLock`).
   - Surface **pantry matching** using already-parsed `recipe_ingredients` (`name`, `quantity`, `unit`): show available vs. missing ingredients and allow 1-tap pantry deduction when cooking.
   - Replace the hardcoded `quantity <= 1` low-stock check (`web/app.js:576, 952`) with a per-item low-stock threshold (or unit-aware default).
-- [ ] **Improve Chores, Bills, and Search/Filtering**
+- [x] **Improve Chores, Bills, and Search/Filtering**
   - Add search & filters across Pantry (`All`, `Low`, `Expiring`) and Recipes (by name or ingredient).
   - Separate **Bills** cleanly on the Chores Kanban board (`web/app.js:678-694`): show bill amount tags and require an explicit `Pay` action (not silent 3-state cycling) with undo feedback.
   - Offer quick-pick chips / autocomplete of existing household members in chore/bill forms to avoid name typos splitting points.

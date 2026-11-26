@@ -1,21 +1,25 @@
 import { fmtDay } from "../dates.js";
 import { delBtn, eyebrow, h, list, section, segmented, store } from "../dom.js";
+import { moneyShort } from "../money.js";
 import { render } from "../router.js";
 import { cached } from "../store.js";
 import { cal, calendar, dragData, moveItem, split } from "../components/calendar.js";
 import {
-  chipLabel, choreForm, choreRow, editBtn, ghostChip, moveBtn, openChoreEditModal, priorityTag,
-  projected, setChore, STATUS, STATUS_COLOR, STATUS_LABEL,
+  chipLabel, choreForm, choreRow, editBtn, ghostChip, moveBtn, openChoreEditModal,
+  payBillBtn, priorityTag, projected, repeatTag, setChore, STATUS, STATUS_COLOR, STATUS_LABEL, syncMembers,
 } from "../components/domain.js";
 
 function board(chores) {
-  return h("div.board", STATUS.map((key, i) => {
-    const items = chores.filter((c) => c.status === key);
+  const tasks = chores.filter((c) => !c.amount);
+  const bills = chores.filter((c) => c.amount);
+
+  const taskBoard = h("div.board", STATUS.map((key, i) => {
+    const items = tasks.filter((c) => c.status === key);
     return h("div.col",
       h("h3", h("span", { class: STATUS_COLOR[key] }, STATUS_LABEL[key]), h("span.c-muted", items.length)),
       items.length ? items.map((c) => h("div.card",
         h("div.title", c.title),
-        h("div.meta", `${c.assigned_to} · ${c.points} pt${c.points === 1 ? "" : "s"}${c.due_date ? " · " + fmtDay(c.due_date) : ""} `, priorityTag(c.priority)),
+        h("div.meta", `${c.assigned_to} · ${c.points} pt${c.points === 1 ? "" : "s"}${c.due_date ? " · " + fmtDay(c.due_date) : ""} `, priorityTag(c.priority), " ", repeatTag(c)),
         h("div.actions",
           h("button.icon", { onclick: () => setChore(c, { status: STATUS[i - 1] }), disabled: i === 0, "aria-label": "Move back" }, "←"),
           moveBtn("chore", c.id, c.title, c.due_date),
@@ -26,10 +30,41 @@ function board(chores) {
       )) : h("p.empty", "—"),
     );
   }));
+
+  if (!bills.length) return taskBoard;
+
+  const billCols = [
+    ["Unpaid", "c-yellow", bills.filter((b) => b.status !== "done")],
+    ["Paid", "c-green", bills.filter((b) => b.status === "done")],
+  ];
+  const billBoard = [
+    h("h2", "Bills"),
+    h("div.board.bills-board", billCols.map(([title, cls, items]) =>
+      h("div.col",
+        h("h3", h("span", { class: cls }, title), h("span.c-muted", items.length)),
+        items.length ? items.map((c) => h("div.card",
+          h("div.spread",
+            h("span.title", c.title),
+            h("span.tag", { class: c.status === "done" ? "c-green" : "c-yellow" }, c.status === "done" ? `Paid · ${moneyShort(c.amount)}` : `Bill ${moneyShort(c.amount)}`),
+          ),
+          h("div.meta", `${c.assigned_to}${c.category ? ` · ${c.category}` : ""}${c.due_date ? " · " + fmtDay(c.due_date) : ""} `, repeatTag(c)),
+          h("div.actions",
+            payBillBtn(c),
+            moveBtn("chore", c.id, c.title, c.due_date),
+            editBtn(c.title, () => openChoreEditModal(c)),
+            delBtn(`/chores/${c.id}`, c.title),
+          ),
+        )) : h("p.empty", "—"),
+      ),
+    )),
+  ];
+
+  return [taskBoard, billBoard];
 }
 
 export async function choresView(root) {
   const chores = await cached("chores", "/chores");
+  syncMembers(chores);
   const mode = store.get("choresMode", "month");
   const setMode = (m) => {
     store.set("choresMode", m);

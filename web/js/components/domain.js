@@ -1,6 +1,6 @@
 import { api } from "../api.js";
 import { addDays, fmtDay, iso, nextDate, today } from "../dates.js";
-import { create, delBtn, fail, formData, h, toast } from "../dom.js";
+import { create, delBtn, fail, formData, h, store, toast } from "../dom.js";
 import { isJobPending, submitAiJob } from "../jobs.js";
 import { CATEGORIES, CAT_COLOR, money, moneyShort } from "../money.js";
 import { render, requestRecipeOpen } from "../router.js";
@@ -19,11 +19,67 @@ const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 export const priorityTag = (p) => h("span.tag", { class: { high: "c-red", medium: "c-orange", low: "c-green" }[p] || "c-muted" }, cap(p));
 export const bySlot = (a, b) => SLOTS.indexOf(a.slot) - SLOTS.indexOf(b.slot);
 
-export async function setChore(c, body) {
+let knownMembers = store.get("members", []);
+
+export function syncMembers(chores = []) {
+  const set = new Set();
+  for (const c of chores) {
+    const m = (c.assigned_to || "").trim();
+    if (m && m.toLowerCase() !== "anyone") set.add(m);
+  }
+  const next = [...set].sort((a, b) => a.localeCompare(b));
+  knownMembers = next;
+  store.set("members", next);
+  let dl = document.getElementById("rosie-members");
+  if (!dl) {
+    dl = h("datalist", { id: "rosie-members" });
+    document.body.append(dl);
+  }
+  dl.replaceChildren(
+    h("option", { value: "Anyone" }),
+    next.map((m) => h("option", { value: m })),
+  );
+}
+
+export function memberChips(input) {
+  const names = knownMembers.length ? ["Anyone", ...knownMembers] : [];
+  if (!names.length) return null;
+  return h(
+    "div.member-chips",
+    { role: "group", "aria-label": "Household members" },
+    h("span.meta", "Assign:"),
+    names.map((m) =>
+      h(
+        "button.tag.linkish.c-purple",
+        {
+          type: "button",
+          onclick: () => {
+            input.value = m;
+            input.focus();
+          },
+        },
+        m,
+      ),
+    ),
+  );
+}
+
+export async function setChore(c, body, isUndo = false) {
   try {
     await api(`/chores/${c.id}`, { method: "PATCH", body });
-    if (c.amount && body.status === "done") toast(`Paid ${c.title} — logged as an expense`);
-    else if (c.amount && body.status && c.status === "done") toast(`${c.title} unpaid — expense removed`);
+    if (c.amount && body.status === "done") {
+      if (isUndo) {
+        toast(`Paid ${c.title} — logged as an expense`);
+      } else {
+        const prevStatus = c.status && c.status !== "done" ? c.status : "todo";
+        toast(`Paid ${c.title} — logged as an expense`, false, {
+          label: "Undo",
+          onclick: () => setChore({ ...c, status: "done" }, { status: prevStatus }, true),
+        });
+      }
+    } else if (c.amount && body.status && c.status === "done") {
+      toast(`${c.title} unpaid — expense removed`);
+    }
     render();
   } catch (err) {
     fail(err);
@@ -162,6 +218,7 @@ export function editBtn(label, onClick) {
 
 export function openChoreEditModal(c) {
   const isBill = c.amount != null && c.amount > 0;
+  const whoInput = h("input", { name: "assigned_to", list: "rosie-members", value: c.assigned_to, placeholder: isBill ? "Who pays" : "Who", "aria-label": "Assigned to" });
   const form = h(
     "form.stack",
     {
@@ -213,10 +270,11 @@ export function openChoreEditModal(c) {
         ],
     h(
       "div.row-fields",
-      h("input", { name: "assigned_to", value: c.assigned_to, placeholder: isBill ? "Who pays" : "Who", "aria-label": "Assigned to" }),
+      whoInput,
       h("input", { name: "due_date", type: "date", value: c.due_date || "", "aria-label": "Due date" }),
       repeatSelect(isBill ? ["", "monthly", "yearly"] : ["", "weekly", "monthly", "yearly"], c.repeat || ""),
     ),
+    memberChips(whoInput),
     h("button.primary", { type: "submit" }, "Save changes"),
   );
   const { close } = showModal({
@@ -265,7 +323,8 @@ export const repeatSelect = (opts, dflt) => h("select.w-sm", { name: "repeat", "
   opts.map((r) => h("option", { value: r, selected: r === dflt }, REPEAT_LABEL[r])));
 
 export function billForm(date) {
-  return h("form.row", {
+  const whoInput = h("input.w-sm", { name: "assigned_to", list: "rosie-members", placeholder: "Who pays", "aria-label": "Who pays" });
+  const form = h("form.row", {
     onsubmit: (e) => {
       e.preventDefault();
       const d = formData(e.target);
@@ -279,26 +338,43 @@ export function billForm(date) {
     h("input", { name: "title", placeholder: "Bill (e.g. Electricity)", required: true, autocomplete: "off", "aria-label": "Bill" }),
     h("input.w-sm", { name: "amount", type: "number", step: "0.01", min: "0.01", placeholder: "0.00", required: true, "aria-label": "Amount" }),
     h("select.w-sm", { name: "category", "aria-label": "Category" }, CATEGORIES.map((c) => h("option", { value: c, selected: c === "Utilities" }, c))),
-    h("input.w-sm", { name: "assigned_to", placeholder: "Who pays", "aria-label": "Who pays" }),
+    whoInput,
     repeatSelect(["", "monthly", "yearly"], "monthly"),
     h("button.primary", { type: "submit" }, "Add bill"),
   );
+  return h("div", form, memberChips(whoInput));
+}
+
+export function payBillBtn(c) {
+  const paid = c.status === "done";
+  return h("button", {
+    type: "button",
+    class: paid ? "tag linkish c-green" : "tag linkish c-yellow",
+    onclick: (e) => {
+      e.stopPropagation();
+      setChore(c, { status: paid ? "todo" : "done" });
+    },
+  }, paid ? "Paid · Undo" : "Pay");
 }
 
 export function choreRow(c) {
+  const isBill = c.amount != null && c.amount > 0;
   const next = STATUS[(STATUS.indexOf(c.status) + 1) % STATUS.length];
   return [
-    h("button.icon.status", {
-      class: STATUS_COLOR[c.status],
-      title: `${STATUS_LABEL[c.status]} — Click for ${STATUS_LABEL[next]}`,
-      "aria-label": `${c.title} is ${STATUS_LABEL[c.status]}, mark ${STATUS_LABEL[next]}`,
-      onclick: () => setChore(c, { status: next }),
-    }, STATUS_GLYPH[c.status]),
+    isBill
+      ? payBillBtn(c)
+      : h("button.icon.status", {
+          type: "button",
+          class: STATUS_COLOR[c.status],
+          title: `${STATUS_LABEL[c.status]} — Click for ${STATUS_LABEL[next]}`,
+          "aria-label": `${c.title} is ${STATUS_LABEL[c.status]}, mark ${STATUS_LABEL[next]}`,
+          onclick: () => setChore(c, { status: next }),
+        }, STATUS_GLYPH[c.status]),
     h("span.grow",
       h("span.title", { class: c.status === "done" ? "strike" : null }, c.title),
-      h("span.meta", ` ${c.assigned_to}${c.amount ? "" : ` · ${c.points} pt${c.points === 1 ? "" : "s"}`}`)),
+      h("span.meta", ` ${c.assigned_to}${isBill ? "" : ` · ${c.points} pt${c.points === 1 ? "" : "s"}`}`)),
     repeatTag(c),
-    c.amount
+    isBill
       ? h("span.tag", { class: c.status === "done" ? "c-green" : "c-yellow" }, c.status === "done" ? `Paid · ${moneyShort(c.amount)}` : `Bill ${moneyShort(c.amount)}`)
       : priorityTag(c.priority),
     moveBtn("chore", c.id, c.title, c.due_date),
@@ -347,7 +423,8 @@ export const expenseRow = (e, linked = 0, fromBill = false) => [
 ];
 
 export function choreForm(date) {
-  return h("form.row", {
+  const whoInput = h("input.w-sm", { name: "assigned_to", list: "rosie-members", placeholder: "Who", "aria-label": "Assigned to" });
+  const form = h("form.row", {
     onsubmit: (e) => {
       e.preventDefault();
       const d = formData(e.target);
@@ -359,12 +436,13 @@ export function choreForm(date) {
     },
   },
     h("input", { name: "title", placeholder: "Chore", required: true, autocomplete: "off", "aria-label": "Chore" }),
-    h("input.w-sm", { name: "assigned_to", placeholder: "Who", "aria-label": "Assigned to" }),
+    whoInput,
     h("select.w-sm", { name: "priority", "aria-label": "Priority" }, ["low", "medium", "high"].map((p) => h("option", { value: p, selected: p === "medium" }, cap(p)))),
     h("input.w-xs", { name: "points", type: "number", min: "1", value: "1", title: "Points", "aria-label": "Points" }),
     repeatSelect(["", "weekly", "monthly"], ""),
     h("button.primary", { type: "submit" }, "Add"),
   );
+  return h("div", form, memberChips(whoInput));
 }
 
 export function mealForm(date, recipes = []) {
@@ -515,7 +593,7 @@ export function expenseForm(date, withScan = false) {
     h("input.w-sm", { name: "amount", type: "number", step: "any", min: "0", placeholder: "0.00", required: true, "aria-label": "Amount", value: r && r.amount ? r.amount : null }),
     h("select.w-sm", { name: "category", "aria-label": "Category" },
       CATEGORIES.map((c) => h("option", { value: c, selected: r && r.category === c }, c))),
-    h("input", { name: "date", type: "hidden", value: day }),
+    h("input.w-date", { name: "date", type: "date", value: day, required: true, "aria-label": "Date" }),
     h("button.primary", { type: "submit" }, "Add"),
   );
   if (!withScan) return form;

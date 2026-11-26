@@ -6,7 +6,7 @@ import { cached } from "../store.js";
 import { cal, calendar, gridRange, inMonth, monthKey, moveItem, split, weekStrip } from "../components/calendar.js";
 import {
   bySlot, chipLabel, choreForm, choreRow, expenseForm, expenseRow,
-  ghostChip, mealForm, mealRow, projected, SLOT_COLOR,
+  ghostChip, mealForm, mealRow, projected, SLOT_COLOR, syncMembers,
 } from "../components/domain.js";
 
 let homeAdd = "chore";
@@ -23,6 +23,7 @@ export async function homeView(root) {
     cached("budgets", "/budgets"),
   ]);
   const budgetTotal = budgets.reduce((s, b) => s + b.amount, 0);
+  syncMembers(chores);
   const layers = store.get("layers", { meals: true, chores: true, expenses: true });
   const toggleLayer = (k) => {
     layers[k] = !layers[k];
