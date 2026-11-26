@@ -34,21 +34,30 @@ export async function render() {
   // Views pass optional sections (null) and grouped sections (arrays); flatten and drop empties.
   next.append = (...kids) => Element.prototype.append.apply(next, kids.flat(Infinity).filter((k) => k != null && k !== false));
   const y = window.scrollY;
+  const locked = auth.required && !auth.authenticated;
+  document.body.classList.toggle("is-locked", locked);
   try {
-    const auth = getAuthState();
-    if (auth.required && !auth.authenticated) {
+    if (locked) {
       renderLogin(next);
     } else {
       const s = await cached("settings", "/settings").catch(() => null);
       if (s) setSettings(s);
       const afterAuth = getAuthState();
-      if (afterAuth.required && !afterAuth.authenticated) renderLogin(next);
-      else await view(next);
+      if (afterAuth.required && !afterAuth.authenticated) {
+        document.body.classList.add("is-locked");
+        renderLogin(next);
+      } else {
+        await view(next);
+      }
     }
   } catch (err) {
-    const auth = getAuthState();
-    if (auth.required && !auth.authenticated) renderLogin(next);
-    else next.replaceChildren(h("h1", "Offline"), h("p.sub.c-red", err.message), h("button", { onclick: render }, "Retry"));
+    const afterErr = getAuthState();
+    if (afterErr.required && !afterErr.authenticated) {
+      document.body.classList.add("is-locked");
+      renderLogin(next);
+    } else {
+      next.replaceChildren(h("h1", "Offline"), h("p.sub.c-red", err.message), h("button", { onclick: render }, "Retry"));
+    }
   }
   if (gen !== renderGen) return;
   root.replaceChildren(next);

@@ -383,6 +383,24 @@ button.link { border: 0; background: none; padding: 0; color: var(--purple); fon
   .home-split.mode-week .home-cal-wrap { display: none; }
 }
 
+/* ---------- quick add FAB & sheet ---------- */
+.fab {
+  position: fixed; right: 20px; bottom: 24px; z-index: 35;
+  width: 52px; height: 52px; border-radius: 99px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--purple); color: var(--bg); border: 1px solid var(--purple);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+}
+.fab:hover { filter: brightness(1.08); border-color: var(--purple); }
+body.is-locked .fab, body.is-locked .bottom-nav { display: none !important; }
+@media (max-width: 768px) {
+  .fab { right: 16px; bottom: calc(74px + env(safe-area-inset-bottom, 0px)); }
+}
+.quick-add-body { display: grid; gap: 12px; }
+.quick-tabs { display: flex; flex-wrap: wrap; width: 100%; }
+.quick-tabs button { flex: 1 1 auto; }
+.row-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+
 /* ---------- modals & shortcuts ---------- */
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 50;

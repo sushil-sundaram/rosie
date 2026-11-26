@@ -83,14 +83,16 @@ export function delBtn(path, label) {
   }, "×");
 }
 
-/** Sends a create request, toasts, re-renders. */
+/** Sends a create request, toasts, re-renders. Returns true on success. */
 export async function create(path, body, label) {
   try {
     await api(path, { method: "POST", body });
     toast(`Added ${label}`);
     triggerRender();
+    return true;
   } catch (err) {
     fail(err);
+    return false;
   }
 }
 

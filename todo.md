@@ -75,7 +75,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
 - [x] **Today-first mobile Home & Agenda layout** (`web/app.js:598-621`, `web/app.css:190-241`)
   - **Mobile**: Lead with **Today's Agenda** (tonight's meals, due chores/bills, today's expenses) + a compact horizontal 7-day week strip above the fold instead of burying today's details underneath a month grid of unreadable 6×6 px dots.
   - **Desktop**: Keep the 2-column split month calendar + sticky right day inspector.
-- [ ] **Universal quick capture (`+` FAB / bottom sheet)**
+- [x] **Universal quick capture (`+` FAB / bottom sheet)**
   - Add a persistent `+` action on mobile (and shortcut/button on desktop) to log an expense, scan a receipt, add a pantry item, or add a chore in 1–2 taps from any screen.
 - [ ] **Touch-friendly rescheduling & visible affordances** (`web/app.js:133-140, 209, 670`)
   - Keep drag-and-drop as a desktop shortcut, and add a tap-friendly **Move / Reschedule** date picker/quick actions (`Today`, `Tomorrow`, `+1 week`) on chores, bills, and meals.
