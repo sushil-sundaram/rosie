@@ -4,7 +4,7 @@ import { render } from "../router.js";
 import { cached } from "../store.js";
 import { cal, calendar, dragData, moveItem, split } from "../components/calendar.js";
 import {
-  chipLabel, choreForm, choreRow, ghostChip, priorityTag,
+  chipLabel, choreForm, choreRow, ghostChip, moveBtn, priorityTag,
   projected, setChore, STATUS, STATUS_COLOR, STATUS_LABEL,
 } from "../components/domain.js";
 
@@ -18,6 +18,7 @@ function board(chores) {
         h("div.meta", `${c.assigned_to} · ${c.points} pt${c.points === 1 ? "" : "s"}${c.due_date ? " · " + fmtDay(c.due_date) : ""} `, priorityTag(c.priority)),
         h("div.actions",
           h("button.icon", { onclick: () => setChore(c, { status: STATUS[i - 1] }), disabled: i === 0, "aria-label": "Move back" }, "←"),
+          moveBtn("chore", c.id, c.title, c.due_date),
           delBtn(`/chores/${c.id}`, c.title),
           h("button.icon", { onclick: () => setChore(c, { status: STATUS[i + 1] }), disabled: i === STATUS.length - 1, "aria-label": "Move forward" }, "→"),
         ),

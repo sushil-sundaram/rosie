@@ -1,10 +1,11 @@
 import { api } from "../api.js";
-import { fmtDay, iso, nextDate } from "../dates.js";
+import { addDays, fmtDay, iso, nextDate, today } from "../dates.js";
 import { create, delBtn, fail, formData, h, toast } from "../dom.js";
 import { isJobPending, submitAiJob } from "../jobs.js";
 import { CATEGORIES, CAT_COLOR, money, moneyShort } from "../money.js";
 import { render } from "../router.js";
-import { cal } from "./calendar.js";
+import { showModal } from "../shortcuts.js";
+import { cal, moveItem } from "./calendar.js";
 
 export const SLOTS = ["breakfast", "lunch", "dinner"];
 export const SLOT_COLOR = { breakfast: "c-yellow", lunch: "c-cyan", dinner: "c-purple" };
@@ -63,13 +64,89 @@ export const ghostChip = (p) => ({
 export function repeatTag(c) {
   if (!c.repeat) return null;
   return h("button.tag.linkish.c-purple", {
-    title: `Repeats ${c.repeat} — click to stop repeating`,
-    "aria-label": `${c.title} repeats ${c.repeat}; stop repeating`,
+    type: "button",
+    "aria-label": `${c.title} repeats ${c.repeat}; change or stop repeat`,
     onclick: (e) => {
       e.stopPropagation();
-      if (confirm(`Stop "${c.title}" repeating ${c.repeat}?`)) setChore(c, { repeat: "" });
+      const body = h(
+        "div.stack",
+        h("p.meta", `${c.title} currently repeats ${REPEAT_LABEL[c.repeat] || c.repeat}.`),
+        h(
+          "div.move-quick",
+          ["weekly", "monthly", "yearly"].map((r) =>
+            h(
+              "button",
+              {
+                type: "button",
+                class: c.repeat === r ? "primary" : null,
+                onclick: async () => {
+                  close();
+                  if (c.repeat !== r) await setChore(c, { repeat: r });
+                },
+              },
+              REPEAT_LABEL[r],
+            ),
+          ),
+          h(
+            "button.c-red",
+            {
+              type: "button",
+              onclick: async () => {
+                close();
+                await setChore(c, { repeat: "" });
+              },
+            },
+            "Stop repeating",
+          ),
+        ),
+      );
+      const { close } = showModal({ title: "Repeat schedule", body, backdropClass: "sheet-mobile" });
     },
   }, `↻ ${cap(c.repeat)}`);
+}
+
+export function openMoveModal({ kind, id, label, currentDate }) {
+  const t = today();
+  const base = currentDate || t;
+  const dateInput = h("input", { type: "date", value: base, "aria-label": "Choose date" });
+  const pick = async (date) => {
+    close();
+    await moveItem(kind, id, date);
+  };
+  const body = h(
+    "div.stack",
+    h("p.meta", label + (currentDate ? ` · Currently ${fmtDay(currentDate)}` : " · Unscheduled")),
+    h(
+      "div.move-quick",
+      h("button", { type: "button", onclick: () => pick(t) }, "Today"),
+      h("button", { type: "button", onclick: () => pick(addDays(t, 1)) }, "Tomorrow"),
+      h("button", { type: "button", onclick: () => pick(addDays(base, 7)) }, "+1 week"),
+      kind === "chore" && currentDate ? h("button.c-muted", { type: "button", onclick: () => pick("") }, "Unschedule") : null,
+    ),
+    h(
+      "form.row",
+      {
+        onsubmit: (e) => {
+          e.preventDefault();
+          if (dateInput.value) pick(dateInput.value);
+        },
+      },
+      dateInput,
+      h("button.primary", { type: "submit" }, "Move"),
+    ),
+  );
+  const { close } = showModal({ title: "Move / Reschedule", body, backdropClass: "sheet-mobile" });
+}
+
+export function moveBtn(kind, id, label, currentDate) {
+  return h("button.tag.linkish.c-cyan.move-btn", {
+    type: "button",
+    "aria-label": `Move ${label}`,
+    onclick: (e) => {
+      e.stopPropagation();
+      openMoveModal({ kind, id, label, currentDate });
+    },
+  }, "Move");
 }
 
 export const repeatSelect = (opts, dflt) => h("select.w-sm", { name: "repeat", "aria-label": "Repeat" },
@@ -109,16 +186,25 @@ export function choreRow(c) {
       h("span.title", { class: c.status === "done" ? "strike" : null }, c.title),
       h("span.meta", ` ${c.assigned_to}${c.amount ? "" : ` · ${c.points} pt${c.points === 1 ? "" : "s"}`}`)),
     repeatTag(c),
-    c.amount ? h("span.tag.c-yellow", { title: c.status === "done" ? "Paid — logged as an expense" : "Bill" }, `Bill ${moneyShort(c.amount)}`) : priorityTag(c.priority),
+    c.amount
+      ? h("span.tag", { class: c.status === "done" ? "c-green" : "c-yellow" }, c.status === "done" ? `Paid · ${moneyShort(c.amount)}` : `Bill ${moneyShort(c.amount)}`)
+      : priorityTag(c.priority),
+    moveBtn("chore", c.id, c.title, c.due_date),
     delBtn(`/chores/${c.id}`, c.title),
   ];
 }
 
-export const mealRow = (m) => [h("span.tag", { class: SLOT_COLOR[m.slot] || "c-muted" }, SLOT_LABEL[m.slot] || cap(m.slot)), h("span.grow.title", m.title), delBtn(`/meals/${m.id}`, m.title)];
+export const mealRow = (m) => [
+  h("span.tag", { class: SLOT_COLOR[m.slot] || "c-muted" }, SLOT_LABEL[m.slot] || cap(m.slot)),
+  h("span.grow.title", m.title),
+  moveBtn("meal", m.id, m.title, m.date),
+  delBtn(`/meals/${m.id}`, m.title),
+];
 
-export const expenseRow = (e, linked = 0) => [
+export const expenseRow = (e, linked = 0, fromBill = false) => [
   h("span.grow.title", e.title),
-  linked ? h("a.tag.c-green", { href: "#/pantry", title: "Items from this purchase in the pantry" }, `${linked} in pantry`) : null,
+  fromBill ? h("a.tag.c-yellow", { href: "#/chores" }, "From bill") : null,
+  linked ? h("a.tag.c-green", { href: "#/pantry" }, `${linked} in pantry`) : null,
   h("span.tag", { class: CAT_COLOR[e.category] || "c-muted" }, e.category),
   h("span.num", money(e.amount)),
   delBtn(`/expenses/${e.id}`, e.title),

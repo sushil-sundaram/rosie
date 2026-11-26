@@ -66,21 +66,54 @@ export function list(items, row, ...emptyMsg) {
 }
 
 export function delBtn(path, label) {
-  return h("button.icon.del", {
-    title: `Delete ${label}`,
-    "aria-label": `Delete ${label}`,
-    onclick: async (e) => {
-      e.stopPropagation();
-      if (!confirm(`Delete "${label}"?`)) return;
-      try {
-        await api(path, { method: "DELETE" });
-        toast(`Deleted ${label}`);
-        triggerRender();
-      } catch (err) {
-        fail(err);
-      }
-    },
-  }, "×");
+  let resetTimer = 0;
+  const wrap = h("span.del-wrap");
+  const showIdle = () => {
+    clearTimeout(resetTimer);
+    wrap.replaceChildren(
+      h("button.icon.del", {
+        type: "button",
+        title: `Delete ${label}`,
+        "aria-label": `Delete ${label}`,
+        onclick: (e) => {
+          e.stopPropagation();
+          showConfirm();
+        },
+      }, "×"),
+    );
+  };
+  const showConfirm = () => {
+    clearTimeout(resetTimer);
+    resetTimer = setTimeout(showIdle, 4000);
+    wrap.replaceChildren(
+      h("button.tag.linkish.c-red", {
+        type: "button",
+        "aria-label": `Confirm delete ${label}`,
+        onclick: async (e) => {
+          e.stopPropagation();
+          clearTimeout(resetTimer);
+          try {
+            await api(path, { method: "DELETE" });
+            toast(`Deleted ${label}`);
+            triggerRender();
+          } catch (err) {
+            fail(err);
+            showIdle();
+          }
+        },
+      }, "Delete?"),
+      h("button.icon", {
+        type: "button",
+        "aria-label": `Cancel deleting ${label}`,
+        onclick: (e) => {
+          e.stopPropagation();
+          showIdle();
+        },
+      }, "Cancel"),
+    );
+  };
+  showIdle();
+  return wrap;
 }
 
 /** Sends a create request, toasts, re-renders. Returns true on success. */

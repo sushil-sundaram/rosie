@@ -7,6 +7,7 @@ import { API, CLIENT_ID } from "./api.js";
  */
 export function createSync(onRefresh, onInvalidate = () => {}, onJob = () => {}) {
   const dot = document.getElementById("sync");
+  const banner = document.getElementById("sync-banner");
   let stale = false;
   let timer;
   let wasDown = false;
@@ -19,6 +20,7 @@ export function createSync(onRefresh, onInvalidate = () => {}, onJob = () => {})
     dot.className = `sync ${state}`;
     dot.title = title;
     dot.setAttribute("aria-label", title);
+    if (banner) banner.hidden = !state.includes("pending");
   };
   const busy = () => {
     const a = document.activeElement;
@@ -54,9 +56,11 @@ export function createSync(onRefresh, onInvalidate = () => {}, onJob = () => {})
     pendingPaths.clear();
     fullRefresh = false;
     if (dot.classList.contains("pending")) setDot("live", "Live — changes from other devices appear automatically");
+    else if (banner) banner.hidden = true;
   };
 
   dot.addEventListener("click", () => tryRefresh(true));
+  if (banner) banner.addEventListener("click", () => tryRefresh(true));
   document.addEventListener("focusout", () => setTimeout(tryRefresh, 50));
 
   let retry = 1000;
