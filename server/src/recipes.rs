@@ -8,16 +8,19 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{header, StatusCode},
     response::IntoResponse,
     Json,
 };
 use reqwest::Url;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::path::{Path as FsPath, PathBuf};
+use std::sync::OnceLock;
 
 use crate::models::{Recipe, RecipeIngredient};
 use crate::routes::ollama_json;
@@ -26,6 +29,179 @@ type ApiError = (StatusCode, Json<Value>);
 
 fn err(status: StatusCode, msg: impl Into<String>) -> ApiError {
     (status, Json(json!({ "error": msg.into() })))
+}
+
+const IMAGE_PREFIX: &str = "/api/recipes/images/";
+const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
+static IMAGE_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+pub fn init_image_dir(dir: PathBuf) {
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = IMAGE_DIR.set(dir);
+}
+
+fn image_dir() -> PathBuf {
+    IMAGE_DIR.get().cloned().unwrap_or_else(|| {
+        std::env::var("IMAGE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("../data/images"))
+    })
+}
+
+fn valid_cached_image_name(file: &str) -> Option<&'static str> {
+    let (stem, ext) = file.split_once('.')?;
+    if stem.len() != 64 || !stem.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        return None;
+    }
+    match ext {
+        "jpg" => Some("image/jpeg"),
+        "png" => Some("image/png"),
+        "webp" => Some("image/webp"),
+        "gif" => Some("image/gif"),
+        _ => None,
+    }
+}
+
+fn detect_image_ext(content_type: &str, bytes: &[u8]) -> Option<&'static str> {
+    let ct = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    if !ct.is_empty() && (!ct.starts_with("image/") || ct.contains("svg")) {
+        return None;
+    }
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("jpg")
+    } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("png")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("gif")
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("webp")
+    } else {
+        None
+    }
+}
+
+fn store_image_bytes(bytes: &[u8], content_type: &str, dir: &FsPath) -> Option<String> {
+    if bytes.is_empty() || bytes.len() > MAX_IMAGE_BYTES {
+        return None;
+    }
+    let ext = detect_image_ext(content_type, bytes)?;
+    let hash = hex::encode(Sha256::digest(bytes));
+    let filename = format!("{hash}.{ext}");
+    if std::fs::create_dir_all(dir).is_err() {
+        return None;
+    }
+    let path = dir.join(&filename);
+    if !path.exists() {
+        if let Err(e) = std::fs::write(&path, bytes) {
+            tracing::warn!("failed writing cached recipe image {}: {e}", path.display());
+            return None;
+        }
+    }
+    Some(format!("{IMAGE_PREFIX}{filename}"))
+}
+
+async fn cache_remote_image(url: &str, dir: &FsPath) -> Option<String> {
+    let parsed = Url::parse(url).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https") || is_private_host(&parsed) {
+        return None;
+    }
+    let mut res = fetch_client()
+        .get(parsed)
+        .header("Accept", "image/avif,image/webp,image/png,image/jpeg,image/gif,*/*;q=0.5")
+        .send()
+        .await
+        .ok()?;
+    if !res.status().is_success() {
+        return None;
+    }
+    let content_type = res
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let mut bytes = Vec::new();
+    while let Ok(Some(chunk)) = res.chunk().await {
+        if bytes.len() + chunk.len() > MAX_IMAGE_BYTES {
+            return None;
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    store_image_bytes(&bytes, &content_type, dir)
+}
+
+async fn resolve_image_url(raw: &Option<String>, dir: &FsPath) -> Option<String> {
+    let s = raw.as_deref()?.trim();
+    if let Some(file) = s.strip_prefix(IMAGE_PREFIX) {
+        if valid_cached_image_name(file).is_some() {
+            return Some(format!("{IMAGE_PREFIX}{file}"));
+        }
+        return None;
+    }
+    let public = web_link(&Some(s.to_string()))?;
+    cache_remote_image(&public, dir).await
+}
+
+pub async fn get_recipe_image(Path(file): Path<String>) -> axum::response::Response {
+    get_recipe_image_from_dir(&file, &image_dir()).await
+}
+
+async fn get_recipe_image_from_dir(file: &str, dir: &FsPath) -> axum::response::Response {
+    let Some(mime) = valid_cached_image_name(file) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match tokio::fs::read(dir.join(file)).await {
+        Ok(bytes) => (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, mime),
+                (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn remove_orphan_image(pool: &SqlitePool, old_url: Option<String>, dir: &FsPath) {
+    let Some(file) = old_url.as_deref().and_then(|u| u.strip_prefix(IMAGE_PREFIX)) else {
+        return;
+    };
+    if valid_cached_image_name(file).is_none() {
+        return;
+    }
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM recipes WHERE image_url = ?")
+        .bind(format!("{IMAGE_PREFIX}{file}"))
+        .fetch_one(pool)
+        .await
+        .unwrap_or(1);
+    if count == 0 {
+        let _ = tokio::fs::remove_file(dir.join(file)).await;
+    }
+}
+
+pub async fn migrate_external_images(pool: &SqlitePool) {
+    let Ok(rows) = sqlx::query_as::<_, (i64, String)>(
+        "SELECT id, image_url FROM recipes WHERE image_url IS NOT NULL AND image_url LIKE 'http%'",
+    )
+    .fetch_all(pool)
+    .await
+    else {
+        return;
+    };
+    if rows.is_empty() {
+        return;
+    }
+    let dir = image_dir();
+    for (id, url) in rows {
+        let cached = resolve_image_url(&Some(url), &dir).await;
+        let _ = sqlx::query("UPDATE recipes SET image_url = ? WHERE id = ?")
+            .bind(cached)
+            .bind(id)
+            .execute(pool)
+            .await;
+    }
 }
 
 /* ================= storage ================= */
@@ -56,7 +232,7 @@ fn web_link(s: &Option<String>) -> Option<String> {
     Url::parse(s)
         .ok()
         .filter(|u| matches!(u.scheme(), "http" | "https") && !is_private_host(u) && s.len() <= 2048)
-        .map(|_| s.to_string())
+        .map(|u| u.to_string())
 }
 
 fn non_empty(s: &Option<String>) -> Option<String> {
@@ -104,21 +280,32 @@ fn fmt_qty(q: f64) -> String {
 }
 
 /// Inserts (id = None) or replaces a recipe and its ingredient list in one transaction.
-async fn save_recipe(pool: &SqlitePool, id: Option<i64>, r: &RecipeInput) -> Result<Option<i64>, sqlx::Error> {
+async fn save_recipe(
+    pool: &SqlitePool,
+    id: Option<i64>,
+    r: &RecipeInput,
+    image_url: Option<&str>,
+) -> Result<(Option<i64>, Option<String>), sqlx::Error> {
     let name = r.name.trim();
     let time = r.time_minutes.filter(|t| *t > 0);
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let mut old_img = None;
     let id = match id {
         Some(id) => {
+            old_img = sqlx::query_scalar::<_, Option<String>>("SELECT image_url FROM recipes WHERE id = ?")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten();
             let res = sqlx::query(
                 "UPDATE recipes SET name = ?, instructions = ?, servings = ?, time_minutes = ?, source_url = ?, image_url = ? WHERE id = ?",
             )
             .bind(name).bind(r.instructions.trim()).bind(non_empty(&r.servings)).bind(time)
-            .bind(web_link(&r.source_url)).bind(web_link(&r.image_url)).bind(id)
+            .bind(web_link(&r.source_url)).bind(image_url).bind(id)
             .execute(&mut *tx)
             .await?;
             if res.rows_affected() == 0 {
-                return Ok(None);
+                return Ok((None, None));
             }
             sqlx::query("DELETE FROM recipe_ingredients WHERE recipe_id = ?").bind(id).execute(&mut *tx).await?;
             id
@@ -127,7 +314,7 @@ async fn save_recipe(pool: &SqlitePool, id: Option<i64>, r: &RecipeInput) -> Res
             "INSERT INTO recipes (name, instructions, servings, time_minutes, source_url, image_url) VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(name).bind(r.instructions.trim()).bind(non_empty(&r.servings)).bind(time)
-        .bind(web_link(&r.source_url)).bind(web_link(&r.image_url))
+        .bind(web_link(&r.source_url)).bind(image_url)
         .execute(&mut *tx)
         .await?
         .last_insert_rowid(),
@@ -141,7 +328,7 @@ async fn save_recipe(pool: &SqlitePool, id: Option<i64>, r: &RecipeInput) -> Res
             .await?;
     }
     tx.commit().await?;
-    Ok(Some(id))
+    Ok((Some(id), old_img))
 }
 
 const MAX_LINE: usize = 500;
@@ -175,8 +362,9 @@ pub async fn add_recipe(State(pool): State<SqlitePool>, Json(payload): Json<Reci
     if let Err(e) = check_recipe(&payload) {
         return e;
     }
-    match save_recipe(&pool, None, &payload).await {
-        Ok(id) => (StatusCode::CREATED, Json(json!({ "status": "created", "id": id }))),
+    let image = resolve_image_url(&payload.image_url, &image_dir()).await;
+    match save_recipe(&pool, None, &payload, image.as_deref()).await {
+        Ok((id, _)) => (StatusCode::CREATED, Json(json!({ "status": "created", "id": id }))),
         Err(e) => {
             tracing::error!("insert recipe: {e}");
             err(StatusCode::INTERNAL_SERVER_ERROR, "Failed to insert recipe")
@@ -192,9 +380,16 @@ pub async fn update_recipe(
     if let Err(e) = check_recipe(&payload) {
         return e;
     }
-    match save_recipe(&pool, Some(id), &payload).await {
-        Ok(Some(_)) => (StatusCode::OK, Json(json!({ "status": "updated", "id": id }))),
-        Ok(None) => err(StatusCode::NOT_FOUND, "Recipe not found"),
+    let dir = image_dir();
+    let image = resolve_image_url(&payload.image_url, &dir).await;
+    match save_recipe(&pool, Some(id), &payload, image.as_deref()).await {
+        Ok((Some(_), old_img)) => {
+            if old_img.as_deref() != image.as_deref() {
+                remove_orphan_image(&pool, old_img, &dir).await;
+            }
+            (StatusCode::OK, Json(json!({ "status": "updated", "id": id })))
+        }
+        Ok((None, _)) => err(StatusCode::NOT_FOUND, "Recipe not found"),
         Err(e) => {
             tracing::error!("update recipe: {e}");
             err(StatusCode::INTERNAL_SERVER_ERROR, "Failed to update recipe")
@@ -205,16 +400,24 @@ pub async fn update_recipe(
 /// Removes a recipe with its ingredients in one transaction; planned meals keep
 /// their title and lose the link (meal_plan.recipe_id is ON DELETE SET NULL).
 pub async fn delete_recipe(State(pool): State<SqlitePool>, Path(id): Path<i64>) -> impl IntoResponse {
-    let result: Result<u64, sqlx::Error> = async {
+    let result: Result<(u64, Option<String>), sqlx::Error> = async {
         let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+        let old_img = sqlx::query_scalar::<_, Option<String>>("SELECT image_url FROM recipes WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten();
         sqlx::query("DELETE FROM recipe_ingredients WHERE recipe_id = ?").bind(id).execute(&mut *tx).await?;
         let gone = sqlx::query("DELETE FROM recipes WHERE id = ?").bind(id).execute(&mut *tx).await?.rows_affected();
         tx.commit().await?;
-        Ok(gone)
+        Ok((gone, old_img))
     }
     .await;
     match result {
-        Ok(n) if n > 0 => (StatusCode::OK, Json(json!({ "status": "deleted" }))),
+        Ok((n, old_img)) if n > 0 => {
+            remove_orphan_image(&pool, old_img, &image_dir()).await;
+            (StatusCode::OK, Json(json!({ "status": "deleted" })))
+        }
         Ok(_) => err(StatusCode::NOT_FOUND, "Recipe not found"),
         Err(e) => {
             tracing::error!("delete recipe {id}: {e}");
@@ -461,6 +664,7 @@ async fn import_url(raw: &str) -> Result<Value, ApiError> {
             if d.image_url.is_none() {
                 d.image_url = web_link(&meta_content(&html, "og:image"));
             }
+            d.image_url = resolve_image_url(&d.image_url, &image_dir()).await;
             return Ok(d.into_json("structured"));
         }
     }
@@ -475,7 +679,8 @@ async fn import_url(raw: &str) -> Result<Value, ApiError> {
         d.name = page_title(&html);
     }
     d.source_url = Some(page_url);
-    d.image_url = web_link(&meta_content(&html, "og:image"));
+    let og = web_link(&meta_content(&html, "og:image"));
+    d.image_url = resolve_image_url(&og, &image_dir()).await;
     Ok(d.into_json("ai"))
 }
 
@@ -1251,5 +1456,38 @@ mod tests {
         assert!(escaped.contains("1 cup rice"));
 
         assert_eq!(parse_ingredient("A cup of milk"), ("milk".into(), 1.0, "cup".into()));
+    }
+
+    #[tokio::test]
+    async fn image_caching_and_serving() {
+        let dir = std::env::temp_dir().join(format!("rosie-img-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // Normalized web_link
+        assert_eq!(
+            web_link(&Some("https://example.com\\path".into())).as_deref(),
+            Some("https://example.com/path")
+        );
+
+        // Rejects SVG / HTML / path traversal names
+        assert!(store_image_bytes(b"<svg></svg>", "image/svg+xml", &dir).is_none());
+        assert!(store_image_bytes(b"<html>hi</html>", "text/html", &dir).is_none());
+        assert!(valid_cached_image_name("../etc/passwd").is_none());
+        assert!(valid_cached_image_name("nothex.png").is_none());
+
+        // Valid PNG is stored by SHA-256 and served with nosniff/immutable headers
+        let png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR";
+        let local_url = store_image_bytes(png, "image/png", &dir).expect("cached png");
+        let file = local_url.strip_prefix(IMAGE_PREFIX).expect("prefix");
+        assert!(valid_cached_image_name(file).is_some());
+
+        let res = get_recipe_image_from_dir(file, &dir).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(res.headers().get(header::CONTENT_TYPE).unwrap(), "image/png");
+
+        let bad = get_recipe_image_from_dir("../secret.png", &dir).await;
+        assert_eq!(bad.status(), StatusCode::NOT_FOUND);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
