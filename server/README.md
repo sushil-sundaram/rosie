@@ -49,13 +49,13 @@ All routes are served under `/api` (for example `GET /api/pantry`). Request and 
 | `GET` · `POST` | `/recipes` | `{name, instructions, servings?, time_minutes?, source_url?, image_url?, ingredients: ["1 cup toor dal", …]}`; POST returns `{id}`. GET returns each ingredient as `{text, name, quantity, unit}` |
 | `PUT` · `DELETE` | `/recipes/{id}` | Replace a recipe and its ingredients / remove it (also unlinks it from planned meals) |
 | `POST` | `/recipes/import` | One of `{url}`, `{text}` or `{image_base64}` → an unsaved draft `{name, servings, time_minutes, source_url, image_url, ingredients, instructions, method}`; `method` is `structured` or `ai` |
-| `GET` · `POST` | `/meals` | `{date, slot, title, recipe_id?}` — slot is breakfast, lunch or dinner |
+| `GET` · `POST` | `/meals` | `{date, slot, title, recipe_id?}` — slot is breakfast, lunch or dinner. GET accepts optional `?month=YYYY-MM` or `?from=YYYY-MM-DD&to=YYYY-MM-DD` and `?limit=&offset=` |
 | `PATCH` · `DELETE` | `/meals/{id}` | PATCH `{date}` to reschedule |
 | **Chores & bills** | | |
 | `GET` · `POST` | `/chores` | `{title, assigned_to, priority, status, points, due_date?, repeat?, amount?, category?}` — an `amount` makes it a bill |
 | `PATCH` · `DELETE` | `/chores/{id}` | PATCH any of `{status, due_date, repeat}` (`""` clears a date or stops repeating) |
 | **Expenses & budgets** | | |
-| `GET` · `POST` | `/expenses` | `{title, amount, category, date}`; POST returns `{id}` |
+| `GET` · `POST` | `/expenses` | `{title, amount, category, date}`; POST returns `{id}`. GET accepts optional `?month=YYYY-MM` or `?from=YYYY-MM-DD&to=YYYY-MM-DD` and `?limit=&offset=` |
 | `DELETE` | `/expenses/{id}` | Unlinks pantry items bought with it. 409 if it is a paid bill's expense: un-pay the bill instead |
 | `POST` | `/expenses/scan-receipt` | `{image_base64}` → `{title, amount, category, date, items}` |
 | `GET` | `/budgets` | `[{category, amount}]` — monthly, repeats every month |
