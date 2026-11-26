@@ -1,11 +1,12 @@
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{delete, get, patch, post},
-    Json, Router,
+    Extension, Json, Router,
 };
 use sqlx::SqlitePool;
+use crate::jobs::{self, JobContext};
 use crate::models::{Budget, BudgetUpdate, PantryItem, Chore, ChoreUpdate, Expense, Meal, MealUpdate, ScanReceiptRequest};
 use crate::recipes;
 use serde_json::json;
@@ -855,16 +856,15 @@ fn ollama_client() -> &'static reqwest::Client {
     })
 }
 
-/// The model runs one request at a time, with a small bounded waiting queue so
-/// queued requests don't pile up behind a slow scan.
+/// The model runs one request at a time: a second scan waits its turn rather
+/// than loading another copy of a large model alongside the first.
 static AI_SLOT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
-static AI_QUEUE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
 
 fn ai_error(status: StatusCode, msg: impl Into<String>) -> (StatusCode, Json<serde_json::Value>) {
     (status, Json(json!({ "error": msg.into() })))
 }
 
-fn validate_image_base64(raw: &str) -> Result<&str, (StatusCode, Json<serde_json::Value>)> {
+pub(crate) fn validate_image_base64(raw: &str) -> Result<&str, (StatusCode, Json<serde_json::Value>)> {
     let trimmed = raw.trim();
     let payload = if let Some(rest) = trimmed.strip_prefix("data:") {
         let Some((meta, data)) = rest.split_once(',') else {
@@ -911,10 +911,7 @@ pub(crate) async fn ollama_json(
         body["images"] = json!([image]);
     }
 
-    let _queued = AI_QUEUE
-        .try_acquire()
-        .map_err(|_| ai_error(StatusCode::TOO_MANY_REQUESTS, "Too many AI scans queued. Try again in a moment."))?;
-    let _slot = tokio::time::timeout(std::time::Duration::from_secs(120), AI_SLOT.acquire())
+    let _slot = tokio::time::timeout(std::time::Duration::from_secs(600), AI_SLOT.acquire())
         .await
         .map_err(|_| ai_error(StatusCode::SERVICE_UNAVAILABLE, "The local AI is busy with another request. Try again in a minute."))?
         .map_err(|_| ai_error(StatusCode::SERVICE_UNAVAILABLE, "The local AI is unavailable"))?;
@@ -1014,7 +1011,14 @@ fn normalize_receipt(v: &serde_json::Value) -> serde_json::Value {
     })
 }
 
-async fn scan_receipt(Json(payload): Json<ScanReceiptRequest>) -> impl IntoResponse {
+async fn scan_receipt(
+    Extension(ctx): Extension<JobContext>,
+    headers: HeaderMap,
+    Json(payload): Json<ScanReceiptRequest>,
+) -> axum::response::Response {
+    if let Err(e) = validate_image_base64(&payload.image_base64) {
+        return e.into_response();
+    }
     let prompt = "Analyze this receipt image. Extract:\n\
                   1. 'title': Store or merchant name\n\
                   2. 'amount': Total price / amount paid as a positive number (e.g. 15.75)\n\
@@ -1026,23 +1030,31 @@ async fn scan_receipt(Json(payload): Json<ScanReceiptRequest>) -> impl IntoRespo
                   Respond ONLY with a valid JSON object matching:\n\
                   {\"title\": \"Merchant\", \"amount\": 15.75, \"category\": \"Groceries\", \"date\": \"2026-11-02\", \
                   \"items\": [{\"name\": \"Milk\", \"quantity\": 2, \"unit\": \"L\"}]}";
-
-    match ollama_vision_json(&payload.image_base64, prompt).await {
-        Ok(v) => (StatusCode::OK, Json(normalize_receipt(&v))),
-        Err(e) => e,
-    }
+    let image = payload.image_base64;
+    ctx.spawn("receipt", jobs::client_id_from(&headers), async move {
+        let v = ollama_vision_json(&image, prompt).await?;
+        Ok(normalize_receipt(&v))
+    })
 }
 
 /// Photo of groceries / a shelf / the fridge -> list of pantry items to review.
-async fn scan_pantry_photo(Json(payload): Json<ScanReceiptRequest>) -> impl IntoResponse {
+async fn scan_pantry_photo(
+    Extension(ctx): Extension<JobContext>,
+    headers: HeaderMap,
+    Json(payload): Json<ScanReceiptRequest>,
+) -> axum::response::Response {
+    if let Err(e) = validate_image_base64(&payload.image_base64) {
+        return e.into_response();
+    }
     let prompt = "List the food, grocery and household products visible in this photo, as they would be \
                   tracked in a home pantry. Use short plain product names (e.g. 'Basmati rice', 'Milk', 'Eggs'). \
                   Estimate a count or amount for each, with a unit such as pcs, pack, kg, g, L or ml. \
                   Respond ONLY with a valid JSON object: {\"items\": [{\"name\": \"Eggs\", \"quantity\": 12, \"unit\": \"pcs\"}]}";
-    match ollama_vision_json(&payload.image_base64, prompt).await {
-        Ok(v) => (StatusCode::OK, Json(json!({ "items": parse_items(&v["items"]) }))),
-        Err(e) => e,
-    }
+    let image = payload.image_base64;
+    ctx.spawn("pantry", jobs::client_id_from(&headers), async move {
+        let v = ollama_vision_json(&image, prompt).await?;
+        Ok(json!({ "items": parse_items(&v["items"]) }))
+    })
 }
 
 #[derive(serde::Deserialize)]

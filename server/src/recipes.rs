@@ -8,9 +8,9 @@
 
 use axum::{
     extract::{Path, State},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use reqwest::Url;
 use serde::Deserialize;
@@ -22,8 +22,9 @@ use std::net::IpAddr;
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::OnceLock;
 
+use crate::jobs::{self, JobContext};
 use crate::models::{Recipe, RecipeIngredient};
-use crate::routes::ollama_json;
+use crate::routes::{ollama_json, validate_image_base64};
 
 type ApiError = (StatusCode, Json<Value>);
 
@@ -637,23 +638,34 @@ impl Draft {
     }
 }
 
-pub async fn import_recipe(Json(req): Json<ImportRequest>) -> impl IntoResponse {
-    let result = if let Some(url) = non_empty(&req.url) {
-        import_url(&url).await
+pub async fn import_recipe(
+    Extension(ctx): Extension<JobContext>,
+    headers: HeaderMap,
+    Json(req): Json<ImportRequest>,
+) -> axum::response::Response {
+    let client_id = jobs::client_id_from(&headers);
+    if let Some(url) = non_empty(&req.url) {
+        match import_url(&url, &ctx, client_id).await {
+            Ok(res) => res,
+            Err(e) => e.into_response(),
+        }
     } else if let Some(image) = non_empty(&req.image_base64) {
-        import_ai(Source::Photo(&image)).await.map(|d| d.into_json("ai"))
+        if let Err(e) = validate_image_base64(&image) {
+            return e.into_response();
+        }
+        ctx.spawn("recipe_import", client_id, async move {
+            import_ai(Source::Photo(&image)).await.map(|d| d.into_json("ai"))
+        })
     } else if let Some(text) = non_empty(&req.text) {
-        import_ai(Source::Text(&text)).await.map(|d| d.into_json("ai"))
+        ctx.spawn("recipe_import", client_id, async move {
+            import_ai(Source::Text(&text)).await.map(|d| d.into_json("ai"))
+        })
     } else {
-        Err(err(StatusCode::BAD_REQUEST, "Send a url, text or image_base64"))
-    };
-    match result {
-        Ok(v) => (StatusCode::OK, Json(v)),
-        Err(e) => e,
+        err(StatusCode::BAD_REQUEST, "Send a url, text or image_base64").into_response()
     }
 }
 
-async fn import_url(raw: &str) -> Result<Value, ApiError> {
+async fn import_url(raw: &str, ctx: &JobContext, client_id: String) -> Result<axum::response::Response, ApiError> {
     let url = Url::parse(raw).map_err(|_| err(StatusCode::BAD_REQUEST, "That doesn't look like a web link"))?;
     let (final_url, html) = fetch_page(url).await?;
     let page_url = final_url.to_string();
@@ -665,23 +677,26 @@ async fn import_url(raw: &str) -> Result<Value, ApiError> {
                 d.image_url = web_link(&meta_content(&html, "og:image"));
             }
             d.image_url = resolve_image_url(&d.image_url, &image_dir()).await;
-            return Ok(d.into_json("structured"));
+            return Ok((StatusCode::OK, Json(d.into_json("structured"))).into_response());
         }
     }
 
-    // No recipe data on the page: let the local model read its text.
+    // No recipe data on the page: let the local model read its text in a background job.
     let text = page_text(&html);
     if text.len() < 80 {
         return Err(err(StatusCode::UNPROCESSABLE_ENTITY, "That page has almost no text to read. Try pasting the recipe or a screenshot."));
     }
-    let mut d = import_ai(Source::Page(&text)).await?;
-    if d.name.is_empty() {
-        d.name = page_title(&html);
-    }
-    d.source_url = Some(page_url);
+    let fallback_title = page_title(&html);
     let og = web_link(&meta_content(&html, "og:image"));
-    d.image_url = resolve_image_url(&og, &image_dir()).await;
-    Ok(d.into_json("ai"))
+    Ok(ctx.spawn("recipe_import", client_id, async move {
+        let mut d = import_ai(Source::Page(&text)).await?;
+        if d.name.is_empty() {
+            d.name = fallback_title;
+        }
+        d.source_url = Some(page_url);
+        d.image_url = resolve_image_url(&og, &image_dir()).await;
+        Ok(d.into_json("ai"))
+    }))
 }
 
 /// Links to this machine or the home network are refused, so the import box

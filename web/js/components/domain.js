@@ -1,6 +1,7 @@
 import { api } from "../api.js";
 import { fmtDay, iso, nextDate } from "../dates.js";
 import { create, delBtn, fail, formData, h, toast } from "../dom.js";
+import { isJobPending, submitAiJob } from "../jobs.js";
 import { CATEGORIES, CAT_COLOR, money, moneyShort } from "../money.js";
 import { render } from "../router.js";
 import { cal } from "./calendar.js";
@@ -182,10 +183,15 @@ export function readImage(file, maxSide = 1600) {
 }
 
 /** A button that opens the camera/file picker, sends the photo to `path`, and hands back the JSON. */
-export function photoButton(label, busyText, path, onResult) {
+export function photoButton(label, busyText, path, onResult, kindHint = null) {
   const input = h("input", { type: "file", accept: "image/*", hidden: true });
   const btn = h("button", { type: "button", onclick: () => input.click() }, label);
   const status = h("span.meta");
+  if (kindHint && isJobPending(kindHint)) {
+    btn.disabled = true;
+    status.className = "spinner";
+    status.textContent = busyText;
+  }
   input.addEventListener("change", async () => {
     const file = input.files[0];
     if (!file) return;
@@ -195,7 +201,8 @@ export function photoButton(label, busyText, path, onResult) {
     let note = "";
     try {
       const image_base64 = await readImage(file);
-      note = (await onResult(await api(path, { method: "POST", body: { image_base64 } }))) || "";
+      const result = await submitAiJob(path, { image_base64 }, kindHint);
+      note = (await onResult(result)) || "";
     } catch (err) {
       fail(err);
     } finally {
@@ -300,7 +307,7 @@ export function expenseForm(date, withScan = false) {
     toast("receipt read — check it, then add");
     render();
     return "";
-  });
+  }, "receipt");
 
   const notes = [];
   if (r) {

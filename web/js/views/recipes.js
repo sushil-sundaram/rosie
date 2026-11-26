@@ -1,5 +1,6 @@
 import { api } from "../api.js";
 import { delBtn, fail, h, list, safeHref, safeImg, toast } from "../dom.js";
+import { submitAiJob } from "../jobs.js";
 import { render } from "../router.js";
 import { cached } from "../store.js";
 import { photoButton } from "../components/domain.js";
@@ -48,7 +49,7 @@ function recipeImport() {
     status.className = "spinner";
     status.textContent = busyText;
     try {
-      const out = await api("/recipes/import", { method: "POST", body });
+      const out = await submitAiJob("/recipes/import", body, "recipe_import");
       recipeDraft = asDraft(out, { method: out.method });
       render();
     } catch (err) {
@@ -74,7 +75,7 @@ function recipeImport() {
     recipeDraft = asDraft(out, { method: out.method });
     render();
     return "";
-  });
+  }, "recipe_import");
   form.append(h("div.scan", go, photo, status,
     h("button", { type: "button", onclick: () => { recipeDraft = asDraft({}); render(); } }, "write one")));
   return form;

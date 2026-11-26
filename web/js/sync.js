@@ -5,7 +5,7 @@ import { API, CLIENT_ID } from "./api.js";
  * something we re-render — unless this person is mid-typing, in which case the
  * dot turns orange and the refresh waits until they leave the field (or click the dot).
  */
-export function createSync(onRefresh, onInvalidate = () => {}) {
+export function createSync(onRefresh, onInvalidate = () => {}, onJob = () => {}) {
   const dot = document.getElementById("sync");
   let stale = false;
   let timer;
@@ -97,6 +97,10 @@ export function createSync(onRefresh, onInvalidate = () => {}) {
         msg = JSON.parse(e.data) || {};
       } catch {
         /* keep-alive */
+      }
+      if (msg.type === "job") {
+        onJob(msg);
+        return;
       }
       if (msg.by !== CLIENT_ID) refreshSoon(msg.path || null);
     };
