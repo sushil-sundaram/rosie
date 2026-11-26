@@ -25,7 +25,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
 
 ## P1 — Security & Transport Hardening
 
-- [ ] **Put Rosie behind HTTPS + authentication** (`server/src/main.rs:59-63`, `docker-compose.yml`)
+- [x] **Put Rosie behind HTTPS + authentication** (`server/src/main.rs:59-63`, `docker-compose.yml`)
   - Bind Axum to `127.0.0.1:3000` by default instead of `0.0.0.0` when proxied.
   - Serve over HTTPS via **Tailscale Serve** (tailnet access) and/or **Caddy** (LAN HTTPS), unlocking browser Secure Context APIs (`crypto.randomUUID()`, Service Workers, PWA install, Screen Wake Lock, Web Share Target).
   - Add household authentication (passphrase/session cookie or trusted reverse-proxy identity header) so untrusted LAN devices/guests cannot read or delete household data.
@@ -35,7 +35,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
   - Tighten IPv6 `[...]` parsing in `host_name()` (`L35-38`) so characters after `]` are rejected.
   - Replace wildcard `.ts.net` (`L57`) with explicit tailnet/hostname entries via `ALLOWED_HOSTS`.
   - Apply security headers (`CSP`, `nosniff`, `X-Frame-Options`, `Referrer-Policy`) to early `421`/`403` guard responses too.
-- [ ] **Isolate Docker container networking** (`docker-compose.yml:11`)
+- [x] **Isolate Docker container networking** (`docker-compose.yml:11`)
   - Replace `network_mode: host` with a bridge network + `127.0.0.1:3000:3000` port mapping and `extra_hosts: ["host.docker.internal:host-gateway"]` (if Ollama is exposed to the bridge), preventing container access to arbitrary host loopback services.
 - [x] **Eliminate third-party `image_url` tracking & redirect risk** (`server/src/recipes.rs:54-60`, `server/src/guard.rs:67`, `web/app.js:1080, 1114`)
   - Cache/proxy imported recipe images on the server under `/app/data/` (or gate remote loading), tighten CSP `img-src` to `'self' data:`, and return normalized `u.to_string()` from `web_link()`.

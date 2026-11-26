@@ -1,0 +1,35 @@
+# Optional hardened bridge-network + Caddy HTTPS override:
+#   docker compose -f docker-compose.yml -f docker-compose.isolated.yml up -d
+#
+# Note: if running local Ollama on the host, configure Ollama to listen on the
+# Docker bridge / 0.0.0.0 (`OLLAMA_HOST=0.0.0.0:11434`) so `host.docker.internal`
+# reaches it without `network_mode: host`.
+
+services:
+  rosie:
+    network_mode: !reset null
+    ports:
+      - "127.0.0.1:3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - TRUST_PROXY=1
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: rosie-caddy
+    restart: unless-stopped
+    depends_on:
+      - rosie
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro,Z
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

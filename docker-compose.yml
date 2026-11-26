@@ -26,6 +26,8 @@ services:
       - OLLAMA_BASE_URL=http://127.0.0.1:11434
       - OLLAMA_VISION_MODEL=llama3.2-vision
       - RUST_LOG=info
+      # Optional household passphrase for sign-in (disabled when unset).
+      # - ROSIE_PASSWORD=change-me
       # Extra host names or suffixes allowed to serve Rosie (IP addresses, localhost,
       # *.local, *.lan, and *.home.arpa always work; add *.your-tailnet.ts.net if using Tailscale MagicDNS).
       # - ALLOWED_HOSTS=*.your-tailnet.ts.net,rosie.example.home

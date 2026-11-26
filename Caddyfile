@@ -1,0 +1,10 @@
+# Optional local HTTPS reverse proxy for Rosie (used with docker-compose.isolated.yml).
+# Serves Rosie with a self-signed / internal CA certificate for LAN devices.
+# Export the root CA from Caddy or trust it on phones/laptops, or prefer Tailscale Serve.
+
+:443 {
+	tls internal
+	reverse_proxy rosie:3000 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+}
