@@ -12,7 +12,19 @@ import { photoButton } from "../components/domain.js";
  */
 let recipeDraft = null;
 let recipeImporting = false;
+let pendingShare = null;
 const openRecipes = new Set();
+
+export function setSharedImport({ url, text, title }) {
+  const rawUrl = (url || "").trim();
+  const rawText = (text || "").trim();
+  const match = rawUrl.match(/https?:\/\/\S+/i) || rawText.match(/https?:\/\/\S+/i);
+  if (match) {
+    pendingShare = { url: match[0] };
+  } else if (rawText) {
+    pendingShare = { text: title ? `${title.trim()}\n\n${rawText}` : rawText };
+  }
+}
 
 const lines = (s) => String(s || "").split("\n").map((l) => l.trim()).filter(Boolean);
 const fmtTime = (m) => (!m ? "" : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}`);
@@ -78,6 +90,15 @@ function recipeImport() {
   }, "recipe_import");
   form.append(h("div.scan", go, photo, status,
     h("button", { type: "button", onclick: () => { recipeDraft = asDraft({}); render(); } }, "write one")));
+  if (pendingShare && !recipeImporting) {
+    const shared = pendingShare;
+    pendingShare = null;
+    box.value = shared.url || shared.text || "";
+    queueMicrotask(() => {
+      if (shared.url) run({ url: shared.url }, "reading the shared page");
+      else if (shared.text) run({ text: shared.text }, "reading shared text with local AI — this can take a minute");
+    });
+  }
   return form;
 }
 

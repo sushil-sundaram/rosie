@@ -11,7 +11,7 @@ import { expensesView } from "./js/views/expenses.js";
 import { homeView } from "./js/views/home.js";
 import { mealsView } from "./js/views/meals.js";
 import { pantryView } from "./js/views/pantry.js";
-import { recipesView } from "./js/views/recipes.js";
+import { recipesView, setSharedImport } from "./js/views/recipes.js";
 import { createLoginView, createSettingsView } from "./js/views/settings.js";
 
 const sync = createSync(
@@ -61,6 +61,20 @@ window.addEventListener("hashchange", () => {
   window.scrollTo(0, 0);
   render();
 });
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+
+const shareParams = new URLSearchParams(location.search);
+if (shareParams.has("url") || shareParams.has("text")) {
+  setSharedImport({
+    url: shareParams.get("url"),
+    text: shareParams.get("text"),
+    title: shareParams.get("title"),
+  });
+  history.replaceState(null, "", "#/recipes");
+}
 
 (async () => {
   try {
