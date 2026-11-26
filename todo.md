@@ -102,5 +102,5 @@ Actionable checklist from the security, UX, and architecture audit covering both
 
 ## P4 — Verification & Testing
 
-- [ ] Expand `server` tests (`cargo test`) to cover `PUT /api/pantry/{id}`, `guard.rs` missing/`Origin`/scheme/HTTP2 cases, `put_budget` validation, and `apply_chore_update` edge cases.
+- [x] Expand `server` tests (`cargo test`) to cover `PUT /api/pantry/{id}`, `guard.rs` missing/`Origin`/scheme/HTTP2 cases, `put_budget` validation, and `apply_chore_update` edge cases.
 - [ ] Add Playwright/end-to-end responsive viewport smoke tests (e.g. `390×844` mobile touch + `1280×800` desktop) alongside `./scripts/verify_all.sh`.

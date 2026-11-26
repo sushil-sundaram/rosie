@@ -1661,4 +1661,76 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].low_threshold, Some(250.0));
     }
+
+    #[tokio::test]
+    async fn put_budget_pantry_router_and_chore_repeat_edge_cases() {
+        use axum::body::Body;
+        use tower::Service;
+
+        let pool = test_pool().await;
+
+        // End-to-end Router PUT /api/pantry/{id} with validation & persistence.
+        let pid = sqlx::query("INSERT INTO pantry_items (name, quantity, unit) VALUES ('Oats', 2.0, 'kg')")
+            .execute(&pool)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+        let mut app = app_router(pool.clone());
+        let req = axum::http::Request::builder()
+            .method(axum::http::Method::PUT)
+            .uri(format!("/pantry/{pid}"))
+            .header(axum::http::header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"name":"Rolled Oats","quantity":1.5,"unit":"kg","expires_on":"2026-12-31","low_threshold":0.5}"#))
+            .unwrap();
+        std::future::poll_fn(|cx| Service::<axum::http::Request<Body>>::poll_ready(&mut app, cx)).await.unwrap();
+        let res = Service::call(&mut app, req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let oat: PantryItem = sqlx::query_as("SELECT * FROM pantry_items WHERE id = ?").bind(pid).fetch_one(&pool).await.unwrap();
+        assert_eq!(oat.name, "Rolled Oats");
+        assert_eq!(oat.low_threshold, Some(0.5));
+
+        // put_budget removes budget when set to 0 and rejects non-finite values.
+        assert_eq!(put_budget(State(pool.clone()), Path("Groceries".into()), Json(BudgetUpdate { amount: 250.0 })).await.into_response().status(), StatusCode::OK);
+        assert_eq!(put_budget(State(pool.clone()), Path("Groceries".into()), Json(BudgetUpdate { amount: 0.0 })).await.into_response().status(), StatusCode::OK);
+        let cnt: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM budgets WHERE category = 'Groceries'").fetch_one(&pool).await.unwrap();
+        assert_eq!(cnt, 0);
+        assert_eq!(put_budget(State(pool.clone()), Path("Groceries".into()), Json(BudgetUpdate { amount: f64::NAN })).await.into_response().status(), StatusCode::BAD_REQUEST);
+
+        // Missing chore id returns Ok(false).
+        assert!(!apply_chore_update(&pool, 99999, &ChoreUpdate { status: Some("done".into()), ..Default::default() }).await.unwrap());
+
+        // Monthly repeat from Jan 31 clamps next occurrence to Feb 28 (non-leap year 2026) and keeps repeat_day = 31.
+        let bid = sqlx::query(
+            "INSERT INTO chores (title, assigned_to, priority, status, points, due_date, amount, category, repeat, repeat_day) \
+             VALUES ('Rent', 'Sushil', 'high', 'todo', 1, '2026-01-31', 1200.0, 'Household', 'monthly', 31)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_rowid();
+
+        assert!(apply_chore_update(&pool, bid, &ChoreUpdate { status: Some("done".into()), ..Default::default() }).await.unwrap());
+        let parent: Chore = sqlx::query_as("SELECT * FROM chores WHERE id = ?").bind(bid).fetch_one(&pool).await.unwrap();
+        let next_id = parent.next_id.expect("next repeat created");
+        let next: Chore = sqlx::query_as("SELECT * FROM chores WHERE id = ?").bind(next_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(next.due_date.as_deref(), Some("2026-02-28"));
+        assert_eq!(next.repeat_day, Some(31));
+        assert!(parent.expense_id.is_some());
+
+        // Undoing while untouched deletes both generated occurrence and linked expense.
+        assert!(apply_chore_update(&pool, bid, &ChoreUpdate { status: Some("todo".into()), ..Default::default() }).await.unwrap());
+        let next_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM chores WHERE id = ?").bind(next_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(next_exists, 0);
+        let parent: Chore = sqlx::query_as("SELECT * FROM chores WHERE id = ?").bind(bid).fetch_one(&pool).await.unwrap();
+        assert_eq!(parent.expense_id, None);
+        assert_eq!(parent.next_id, None);
+
+        // Completing again, then rescheduling next occurrence -> undoing parent preserves rescheduled next occurrence.
+        assert!(apply_chore_update(&pool, bid, &ChoreUpdate { status: Some("done".into()), ..Default::default() }).await.unwrap());
+        let next_id2: i64 = sqlx::query_scalar("SELECT next_id FROM chores WHERE id = ?").bind(bid).fetch_one(&pool).await.unwrap();
+        assert!(apply_chore_update(&pool, next_id2, &ChoreUpdate { due_date: Some("2026-03-01".into()), ..Default::default() }).await.unwrap());
+        assert!(apply_chore_update(&pool, bid, &ChoreUpdate { status: Some("todo".into()), ..Default::default() }).await.unwrap());
+        let kept: Option<String> = sqlx::query_scalar("SELECT due_date FROM chores WHERE id = ?").bind(next_id2).fetch_optional(&pool).await.unwrap();
+        assert_eq!(kept.as_deref(), Some("2026-03-01"));
+    }
 }
