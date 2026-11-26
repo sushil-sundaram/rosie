@@ -10,7 +10,9 @@ echo "==> cargo test (server)"
 (cd "$ROOT/server" && cargo test --quiet)
 
 echo "==> node --check (web)"
-node --check "$ROOT/web/app.js"
 node --check "$ROOT/web/theme.js"
+while IFS= read -r -d '' f; do
+  node --input-type=module --check < "$f"
+done < <(find "$ROOT/web" -name '*.js' ! -path "$ROOT/web/theme.js" -print0)
 
 echo "All checks passed."

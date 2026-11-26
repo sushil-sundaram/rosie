@@ -61,7 +61,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
 - [ ] **Make Rosie an installable PWA with offline reads** (`web/index.html`, new `manifest.webmanifest` + `sw.js`)
   - Add Web App Manifest (app icon, standalone display mode) and a lightweight Service Worker caching the app shell + read-only pantry/recipes for grocery store / poor-signal reliability.
   - Register **Web Share Target** in the manifest so mobile browsers can share a recipe link straight into Rosie.
-- [ ] **Split `web/app.js` into native ES modules** (`web/app.js`, `web/index.html`)
+- [x] **Split `web/app.js` into native ES modules** (`web/app.js`, `web/index.html`)
   - Break the 1,240-line monolith into `<script type="module">` modules (`api.js`, `store.js`, `components/*`, `views/*`)—keeps zero build step and stays compatible with `script-src 'self'`.
 
 ---
