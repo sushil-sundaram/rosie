@@ -777,12 +777,38 @@ fn ollama_client() -> &'static reqwest::Client {
     })
 }
 
-/// The model runs one request at a time: a second scan waits its turn rather
-/// than loading another copy of a large model alongside the first.
+/// The model runs one request at a time, with a small bounded waiting queue so
+/// queued requests don't pile up behind a slow scan.
 static AI_SLOT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+static AI_QUEUE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
 
 fn ai_error(status: StatusCode, msg: impl Into<String>) -> (StatusCode, Json<serde_json::Value>) {
     (status, Json(json!({ "error": msg.into() })))
+}
+
+fn validate_image_base64(raw: &str) -> Result<&str, (StatusCode, Json<serde_json::Value>)> {
+    let trimmed = raw.trim();
+    let payload = if let Some(rest) = trimmed.strip_prefix("data:") {
+        let Some((meta, data)) = rest.split_once(',') else {
+            return Err(ai_error(StatusCode::BAD_REQUEST, "invalid image data"));
+        };
+        let meta_lower = meta.to_ascii_lowercase();
+        if !meta_lower.starts_with("image/") || !meta_lower.ends_with(";base64") {
+            return Err(ai_error(StatusCode::BAD_REQUEST, "image must be a base64-encoded image"));
+        }
+        data.trim()
+    } else {
+        trimmed
+    };
+    if payload.is_empty()
+        || payload.len() > 16 * 1024 * 1024
+        || !payload
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'=' | b'\n' | b'\r'))
+    {
+        return Err(ai_error(StatusCode::BAD_REQUEST, "invalid image data"));
+    }
+    Ok(payload)
 }
 
 /// Sends a prompt (and optionally one image) to Ollama in JSON mode and parses the reply.
@@ -793,7 +819,10 @@ pub(crate) async fn ollama_json(
     model: String,
 ) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
     let base = std::env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
-    let image = image_base64.map(|img| img.find("base64,").map(|i| &img[i + 7..]).unwrap_or(img));
+    let image = match image_base64 {
+        Some(img) => Some(validate_image_base64(img)?),
+        None => None,
+    };
     let mut body = json!({
         "model": model, "prompt": prompt, "stream": false, "format": "json",
         // Room for a full recipe page plus the reply; Ollama's default context is
@@ -804,6 +833,9 @@ pub(crate) async fn ollama_json(
         body["images"] = json!([image]);
     }
 
+    let _queued = AI_QUEUE
+        .try_acquire()
+        .map_err(|_| ai_error(StatusCode::TOO_MANY_REQUESTS, "Too many AI scans queued. Try again in a moment."))?;
     let _slot = tokio::time::timeout(std::time::Duration::from_secs(120), AI_SLOT.acquire())
         .await
         .map_err(|_| ai_error(StatusCode::SERVICE_UNAVAILABLE, "The local AI is busy with another request. Try again in a minute."))?
@@ -1254,5 +1286,10 @@ mod tests {
         }));
         assert_eq!(receipt["title"].as_str().unwrap().len(), 200);
         assert_eq!(receipt["category"], "Other");
+
+        // AI image validation accepts raw or image/* data URLs and rejects invalid/non-image data.
+        assert_eq!(validate_image_base64("data:image/jpeg;base64,/9j/4AAQ").unwrap(), "/9j/4AAQ");
+        assert!(validate_image_base64("data:text/html;base64,PGh0bWw+").is_err());
+        assert!(validate_image_base64("not valid base64!!").is_err());
     }
 }

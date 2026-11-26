@@ -39,7 +39,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
   - Replace `network_mode: host` with a bridge network + `127.0.0.1:3000:3000` port mapping and `extra_hosts: ["host.docker.internal:host-gateway"]` (if Ollama is exposed to the bridge), preventing container access to arbitrary host loopback services.
 - [ ] **Eliminate third-party `image_url` tracking & redirect risk** (`server/src/recipes.rs:54-60`, `server/src/guard.rs:67`, `web/app.js:1080, 1114`)
   - Cache/proxy imported recipe images on the server under `/app/data/` (or gate remote loading), tighten CSP `img-src` to `'self' data:`, and return normalized `u.to_string()` from `web_link()`.
-- [ ] **Harden recipe parsing & rate/resource limits**
+- [x] **Harden recipe parsing & rate/resource limits**
   - Add per-IP or connection-age guardrails on `/api/events` SSE streams (`server/src/sync.rs:37`) and rate/concurrency protection on AI routes (`server/src/routes.rs:747`).
   - Use `to_ascii_lowercase()` instead of `to_lowercase()` before byte slicing in `parse_ingredient()` (`server/src/recipes.rs:346-353`).
   - Fix `fetch_page()` early-stop check (`server/src/recipes.rs:645-648`) so an inline `</html>` inside a `<script>` or comment doesn't truncate the page.
