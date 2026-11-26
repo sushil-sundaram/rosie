@@ -23,7 +23,7 @@ export async function render() {
   syncCtrl.markFresh();
   const route = (location.hash.replace(/^#\/?/, "").split("/")[0]) || "home";
   const view = Object.hasOwn(views, route) ? views[route] : views.home;
-  for (const a of document.querySelectorAll("#nav a, a.gear")) {
+  for (const a of document.querySelectorAll("#nav a, #bottom-nav a, a.gear")) {
     const r = a.getAttribute("href").replace(/^#\/?/, "") || "home";
     a.classList.toggle("active", r === route);
     if (r === route) a.setAttribute("aria-current", "page");

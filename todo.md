@@ -69,7 +69,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
 ## P3 — UX Improvements (Phone + Laptop/Desktop)
 
 - [x] **Capitalize the first letter in all menu and UI items** (`web/index.html`, `web/app.css`, `web/js/**`)
-- [ ] **Responsive navigation & thumb-friendly touch targets** (`web/index.html`, `web/app.css`)
+- [x] **Responsive navigation & thumb-friendly touch targets** (`web/index.html`, `web/app.css`)
   - **Mobile (`<= 768px`)**: Move primary navigation to a fixed bottom tab bar (`Today`, `Pantry`, `Meals`, `Chores`, `Money`) with `>= 44×44 px` tap targets and safe-area padding; keep a slim top header for title, sync indicator, theme toggle, and Settings.
   - **Desktop (`> 960px`)**: Retain top nav (or sidebar rail) + keyboard shortcuts (`g h`, `g p`, `/` search, `n` new item, `Esc` dismiss).
 - [ ] **Today-first mobile Home & Agenda layout** (`web/app.js:598-621`, `web/app.css:190-241`)
