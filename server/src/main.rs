@@ -1,3 +1,4 @@
+mod auth;
 mod guard;
 mod models;
 mod recipes;
@@ -23,16 +24,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    let data_dir = db_url
+        .strip_prefix("sqlite://")
+        .and_then(|p| std::path::Path::new(p).parent())
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| std::path::PathBuf::from("../data"));
+
     let image_dir = std::env::var("IMAGE_DIR")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| {
-            db_url
-                .strip_prefix("sqlite://")
-                .and_then(|p| std::path::Path::new(p).parent())
-                .unwrap_or_else(|| std::path::Path::new("../data"))
-                .join("images")
-        });
+        .unwrap_or_else(|_| data_dir.join("images"));
     recipes::init_image_dir(image_dir);
+    let auth_state = auth::AuthState::from_env(Some(&data_dir));
 
     let connection_options = SqliteConnectOptions::from_str(&db_url)?
         .create_if_missing(true)
@@ -61,7 +63,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let changes = sync::channel();
     let api = routes::app_router(pool)
         .merge(sync::router(changes.clone()))
-        .layer(axum::middleware::from_fn_with_state(changes, sync::announce));
+        .layer(axum::middleware::from_fn_with_state(changes, sync::announce))
+        .merge(auth::router(auth_state.clone()))
+        .layer(axum::middleware::from_fn_with_state(auth_state, auth::require_auth));
     let app = axum::Router::new()
         .nest("/api", api)
         .fallback_service(static_files)

@@ -82,7 +82,8 @@ Environment variables are set in [`docker-compose.yml`](docker-compose.yml).
 | `OLLAMA_TEXT_MODEL` | value of `OLLAMA_VISION_MODEL` | Optional. Model used to read recipe text and web pages without recipe data. A smaller text model, such as `qwen2.5:7b`, is faster. |
 | `ALLOWED_HOSTS` | *(none)* | Optional, comma-separated. Extra host names or `*.suffix` entries Rosie will answer to (e.g. `*.your-tailnet.ts.net`). IP addresses, `localhost`, single-word names, `*.local`, `*.lan` and `*.home.arpa` always work. |
 | `TRUST_PROXY` | *(unset)* | Set to `1` when behind a non-loopback TLS reverse proxy so `X-Forwarded-Proto` is honored (loopback proxies are trusted automatically). |
-| `BIND_ADDR` | `0.0.0.0` | Interface to listen on, e.g. a single LAN address. |
+| `ROSIE_PASSWORD` | *(unset)* | Optional household passphrase. When set, browsers must sign in via `/api/auth/login` (`HttpOnly`, `SameSite=Strict` signed session cookie). |
+| `BIND_ADDR` | `0.0.0.0` | Interface to listen on, e.g. `127.0.0.1` when behind a reverse proxy. |
 
 ## Access from other devices
 
@@ -92,13 +93,23 @@ The service listens on port 3000 of the host. To allow access from other devices
 sudo firewall-cmd --permanent --add-port=3000/tcp && sudo firewall-cmd --reload
 ```
 
-Devices on the same network can then use `http://<host-ip>:3000`. For access away from home, a private overlay network such as [Tailscale](https://tailscale.com) is recommended over exposing the port to the internet.
+Devices on the same network can then use `http://<host-ip>:3000`. For access away from home—and for automatic HTTPS (needed on mobile for PWA installation, Screen Wake Lock, and Web Share)—[Tailscale Serve](https://tailscale.com/kb/1312/serve) is recommended:
+
+```bash
+tailscale serve --bg http://127.0.0.1:3000
+```
+
+For isolated bridge networking with an internal HTTPS reverse proxy (Caddy), use the override compose file (requires Ollama to listen on the host bridge if used):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.isolated.yml up -d
+```
 
 If you reach Rosie by a custom domain name, add it to `ALLOWED_HOSTS`; other names are refused (HTTP 421).
 
 ## Security
 
-Rosie has no sign-in: anyone who can reach the port can use it, so keep it on the home network or Tailscale. Within that, it protects the household's data from other websites:
+Rosie has optional passphrase sign-in (`ROSIE_PASSWORD`): when unset, anyone who can reach the port can use it, so keep it on the home network or Tailscale (and set `ROSIE_PASSWORD` on shared networks). Within that, it protects the household's data from other websites:
 
 - **No cross-site access.** The API sends no CORS headers, so pages on other sites can't read it, and writes carrying another site's `Origin` are refused.
 - **DNS rebinding blocked.** Requests are only served for IP addresses, `localhost` and home-network names (plus `ALLOWED_HOSTS`).

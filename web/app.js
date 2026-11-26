@@ -5,6 +5,7 @@
 const API = "/api";
 // Identifies this tab so live-sync can skip echoes of our own changes.
 const CLIENT_ID = (crypto.randomUUID && crypto.randomUUID()) || String(Math.random()).slice(2);
+let authState = { required: false, authenticated: true };
 
 async function api(path, opts = {}) {
   const res = await fetch(API + path, {
@@ -16,6 +17,11 @@ async function api(path, opts = {}) {
   const text = await res.text().catch(() => "");
   try { data = text ? JSON.parse(text) : null; } catch { data = res.ok ? null : { error: text.slice(0, 200) }; }
   if (!res.ok) {
+    if (res.status === 401 && path !== "/auth/login") {
+      authState = { required: true, authenticated: false };
+      sync.disconnect();
+      setTimeout(() => render(), 0);
+    }
     // Someone else removed/changed it: refresh so the screen matches.
     if (res.status === 404 && opts.method && opts.method !== "GET") setTimeout(() => sync.refreshSoon(), 0);
     throw new Error((data && (data.error || data.message)) || `HTTP ${res.status}`);
@@ -891,6 +897,21 @@ views.settings = async (root) => {
     h("h2", "appearance"),
     segmented([["dark", "dark"], ["light", "light"], ["system", "match system"]], currentTheme(), (t) => { setTheme(t); render(); }, "theme"),
     h("p.hint", "saved on this device only, so each person can pick their own"),
+    authState.required ? [
+      h("h2", "session"),
+      h("button", {
+        type: "button",
+        onclick: async () => {
+          try {
+            await api("/auth/logout", { method: "POST" });
+            authState = { required: true, authenticated: false };
+            sync.disconnect();
+            toast("signed out");
+            render();
+          } catch (err) { fail(err); }
+        },
+      }, "sign out"),
+    ] : null,
   ));
 };
 
@@ -1147,6 +1168,30 @@ views.recipes = async (root) => {
 
 let renderGen = 0;
 
+function loginView(next) {
+  const input = h("input", {
+    type: "password", name: "password", placeholder: "household passphrase",
+    required: true, autocomplete: "current-password", "aria-label": "household passphrase",
+  });
+  const btn = h("button.primary", { type: "submit" }, "sign in");
+  next.append(h("div.narrow",
+    h("h1", "sign in"),
+    h("p.sub", "enter the household passphrase to open Rosie"),
+    h("form.row", {
+      onsubmit: async (e) => {
+        e.preventDefault();
+        btn.disabled = true;
+        try {
+          await api("/auth/login", { method: "POST", body: { password: input.value } });
+          authState = { required: true, authenticated: true };
+          sync.connect();
+          render();
+        } catch (err) { fail(err); } finally { btn.disabled = false; }
+      },
+    }, input, btn),
+  ));
+}
+
 async function render() {
   // Only the newest render may update the screen: a slow earlier one (quick
   // navigation, a live-sync refresh) must not overwrite it when it finishes.
@@ -1165,12 +1210,18 @@ async function render() {
   next.append = (...kids) => Element.prototype.append.apply(next, kids.flat(Infinity).filter((k) => k != null && k !== false));
   const y = window.scrollY;
   try {
-    // Settings can change on another device (currency): load them with the view.
-    const s = await api("/settings").catch(() => null);
-    if (s) settings = { ...settings, ...s };
-    await view(next);
+    if (authState.required && !authState.authenticated) {
+      loginView(next);
+    } else {
+      // Settings can change on another device (currency): load them with the view.
+      const s = await api("/settings").catch(() => null);
+      if (s) settings = { ...settings, ...s };
+      if (authState.required && !authState.authenticated) loginView(next);
+      else await view(next);
+    }
   } catch (err) {
-    next.replaceChildren(h("h1", "offline"), h("p.sub.c-red", err.message), h("button", { onclick: render }, "retry"));
+    if (authState.required && !authState.authenticated) loginView(next);
+    else next.replaceChildren(h("h1", "offline"), h("p.sub.c-red", err.message), h("button", { onclick: render }, "retry"));
   }
   if (gen !== renderGen) return;
   root.replaceChildren(next);
@@ -1191,6 +1242,8 @@ const sync = (() => {
   let stale = false;
   let timer;
   let wasDown = false;
+  let es = null;
+  let retryTimer = null;
 
   const setDot = (state, title) => { dot.className = `sync ${state}`; dot.title = title; dot.setAttribute("aria-label", title); };
   const busy = () => {
@@ -1218,9 +1271,15 @@ const sync = (() => {
   document.addEventListener("focusout", () => setTimeout(tryRefresh, 50));
 
   let retry = 1000;
+  function disconnect() {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    if (es) { es.close(); es = null; }
+    setDot("", "signed out");
+  }
   function connect() {
-    if (!window.EventSource) return;
-    const es = new EventSource(API + "/events");
+    if (!window.EventSource || es) return;
+    es = new EventSource(API + "/events");
     es.onopen = () => {
       retry = 1000;
       setDot("live", "live — changes from other devices appear automatically");
@@ -1231,8 +1290,9 @@ const sync = (() => {
       setDot("", "offline — reconnecting…");
       // EventSource retries network drops itself, but gives up for good after
       // an error response (a proxy 502, say): then reconnect ourselves.
-      if (es.readyState === EventSource.CLOSED) {
-        setTimeout(connect, retry);
+      if (es && es.readyState === EventSource.CLOSED) {
+        es = null;
+        retryTimer = setTimeout(connect, retry);
         retry = Math.min(retry * 2, 30000);
       }
     };
@@ -1242,10 +1302,16 @@ const sync = (() => {
       if (by !== CLIENT_ID) refreshSoon();
     };
   }
-  return { connect, refreshSoon, markFresh };
+  return { connect, disconnect, refreshSoon, markFresh };
 })();
 
 window.addEventListener("hashchange", () => { window.scrollTo(0, 0); render(); });
-sync.connect();
 syncThemeColor();
-render();
+(async () => {
+  try {
+    const status = await api("/auth");
+    if (status) authState = status;
+  } catch { /* offline handled in render */ }
+  if (!authState.required || authState.authenticated) sync.connect();
+  render();
+})();

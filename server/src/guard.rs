@@ -116,6 +116,10 @@ fn norm_authority<'a>(scheme: &str, auth: &'a str) -> &'a str {
     }
 }
 
+pub fn is_https(req: &Request) -> bool {
+    expected_scheme(req) == "https"
+}
+
 fn expected_scheme(req: &Request) -> &'static str {
     let from_loopback = req
         .extensions()

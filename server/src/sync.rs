@@ -107,8 +107,10 @@ async fn events(State(changes): State<Changes>, req: Request) -> Response {
 /// broadcast which client made it so that client can ignore its own echo.
 pub async fn announce(State(changes): State<Changes>, req: Request, next: Next) -> Response {
     let path = req.uri().path();
-    let read_only = ["/scan-photo", "/scan-receipt", "/import"].iter().any(|s| path.ends_with(s));
-    let is_write = req.method() != Method::GET && req.method() != Method::OPTIONS && !read_only;
+    let skip_announce = ["/scan-photo", "/scan-receipt", "/import", "/auth/login", "/auth/logout"]
+        .iter()
+        .any(|s| path.ends_with(s));
+    let is_write = req.method() != Method::GET && req.method() != Method::OPTIONS && !skip_announce;
     let by = req
         .headers()
         .get("x-client-id")
