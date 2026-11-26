@@ -29,7 +29,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
   - Bind Axum to `127.0.0.1:3000` by default instead of `0.0.0.0` when proxied.
   - Serve over HTTPS via **Tailscale Serve** (tailnet access) and/or **Caddy** (LAN HTTPS), unlocking browser Secure Context APIs (`crypto.randomUUID()`, Service Workers, PWA install, Screen Wake Lock, Web Share Target).
   - Add household authentication (passphrase/session cookie or trusted reverse-proxy identity header) so untrusted LAN devices/guests cannot read or delete household data.
-- [ ] **Tighten `guard.rs` request checks** (`server/src/guard.rs:35-96`)
+- [x] **Tighten `guard.rs` request checks** (`server/src/guard.rs:35-96`)
   - Reject unsafe methods (`POST`, `PUT`, `PATCH`, `DELETE`) when *both* `Origin` and `Referer` are missing (or when `Sec-Fetch-Site` is `cross-site`), rather than passing requests with absent `Origin`.
   - Compare scheme as well as authority when behind TLS (`X-Forwarded-Proto`), and handle HTTP/2 `:authority` fallback when `header::HOST` is absent.
   - Tighten IPv6 `[...]` parsing in `host_name()` (`L35-38`) so characters after `]` are rejected.
