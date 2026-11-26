@@ -18,6 +18,7 @@ const SHELL_ASSETS = [
   "/js/theme.js",
   "/js/sync.js",
   "/js/router.js",
+  "/js/shortcuts.js",
   "/js/store.js",
   "/js/jobs.js",
   "/js/components/calendar.js",
