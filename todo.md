@@ -72,7 +72,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
 - [x] **Responsive navigation & thumb-friendly touch targets** (`web/index.html`, `web/app.css`)
   - **Mobile (`<= 768px`)**: Move primary navigation to a fixed bottom tab bar (`Today`, `Pantry`, `Meals`, `Chores`, `Money`) with `>= 44×44 px` tap targets and safe-area padding; keep a slim top header for title, sync indicator, theme toggle, and Settings.
   - **Desktop (`> 960px`)**: Retain top nav (or sidebar rail) + keyboard shortcuts (`g h`, `g p`, `/` search, `n` new item, `Esc` dismiss).
-- [ ] **Today-first mobile Home & Agenda layout** (`web/app.js:598-621`, `web/app.css:190-241`)
+- [x] **Today-first mobile Home & Agenda layout** (`web/app.js:598-621`, `web/app.css:190-241`)
   - **Mobile**: Lead with **Today's Agenda** (tonight's meals, due chores/bills, today's expenses) + a compact horizontal 7-day week strip above the fold instead of burying today's details underneath a month grid of unreadable 6×6 px dots.
   - **Desktop**: Keep the 2-column split month calendar + sticky right day inspector.
 - [ ] **Universal quick capture (`+` FAB / bottom sheet)**
