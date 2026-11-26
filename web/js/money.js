@@ -20,6 +20,11 @@ export const CAT_COLOR = {
   Groceries: "c-green", Utilities: "c-cyan", Household: "c-purple", Dining: "c-orange",
   Entertainment: "c-pink", Transportation: "c-yellow", Health: "c-red", Other: "c-muted",
 };
+export const CHORE_CATEGORIES = ["Cleaning", "Kitchen", "Laundry", "Errands", "Maintenance", "Pets", "Garden", "Other"];
+export const CHORE_CAT_COLOR = {
+  Cleaning: "c-cyan", Kitchen: "c-orange", Laundry: "c-purple", Errands: "c-yellow",
+  Maintenance: "c-red", Pets: "c-green", Garden: "c-green", Other: "c-muted",
+};
 
 export const money = (n, digits) => {
   try {

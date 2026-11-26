@@ -5,7 +5,7 @@ import { render } from "../router.js";
 import { cached } from "../store.js";
 import { cal, calendar, dragData, moveItem, split } from "../components/calendar.js";
 import {
-  chipLabel, choreForm, choreRow, editBtn, ghostChip, moveBtn, openChoreEditModal,
+  chipLabel, choreCategoryTag, choreForm, choreRow, editBtn, ghostChip, moveBtn, openChoreEditModal,
   payBillBtn, priorityTag, projected, repeatTag, setChore, STATUS, STATUS_COLOR, STATUS_LABEL, syncMembers,
 } from "../components/domain.js";
 
@@ -19,7 +19,7 @@ function board(chores) {
       h("h3", h("span", { class: STATUS_COLOR[key] }, STATUS_LABEL[key]), h("span.c-muted", items.length)),
       items.length ? items.map((c) => h("div.card",
         h("div.title", c.title),
-        h("div.meta", `${c.assigned_to} · ${c.points} pt${c.points === 1 ? "" : "s"}${c.due_date ? " · " + fmtDay(c.due_date) : ""} `, priorityTag(c.priority), " ", repeatTag(c)),
+        h("div.meta", `${c.assigned_to}${c.due_date ? " · " + fmtDay(c.due_date) : ""} `, choreCategoryTag(c.category), " ", priorityTag(c.priority), " ", repeatTag(c)),
         h("div.actions",
           h("button.icon", { onclick: () => setChore(c, { status: STATUS[i - 1] }), disabled: i === 0, "aria-label": "Move back" }, "←"),
           moveBtn("chore", c.id, c.title, c.due_date),
@@ -72,18 +72,12 @@ export async function choresView(root) {
   };
   const done = chores.filter((c) => c.status === "done");
 
-  const pts = {};
-  for (const c of done) pts[c.assigned_to] = (pts[c.assigned_to] || 0) + c.points;
-  const points = Object.keys(pts).length
-    ? section("Points", list(Object.entries(pts).sort((a, b) => b[1] - a[1]), ([who, p]) => [h("span.grow", who), h("span.num.c-purple", p)]))
-    : null;
-
   const head = h("div.view-head",
     eyebrow(`Chores · ${done.length} of ${chores.length} done`),
     segmented([["month", "Month"], ["board", "Board"]], mode, setMode, "Chores view"));
 
   if (mode === "board") {
-    root.append(head, choreForm(null), board(chores), points);
+    root.append(head, choreForm(null), board(chores));
     return;
   }
 
@@ -99,7 +93,6 @@ export async function choresView(root) {
         onMove: moveItem,
         legend: [...STATUS.map((s) => [STATUS_LABEL[s], STATUS_COLOR[s]]), ["Upcoming repeat", "c-muted ghost"]],
       }),
-      points,
     ],
     [
       list(chores.filter((c) => c.due_date === cal.sel), choreRow, "No chores this day"),

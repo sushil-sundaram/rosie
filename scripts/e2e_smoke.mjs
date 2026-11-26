@@ -346,6 +346,85 @@ async function runBrowserSuite(baseUrl) {
     const helpClosed = await client.eval(ctx, `return !document.querySelector("[data-shortcuts-help]")`);
     assert.equal(helpClosed, true, "Esc should dismiss keyboard shortcuts help modal");
 
+    // Chores UI uses Who dropdown + Categories (no points) & busy calendar day expands on hover
+    await client.eval(ctx, `location.hash = "#/chores";`);
+    await waitForSelector(client, ctx, "form.row select[name='assigned_to']");
+    const choreFormCheck = await client.eval(
+      ctx,
+      `
+      const whoSel = document.querySelector("form.row select[name='assigned_to']");
+      const catSel = document.querySelector("form.row select[name='category']");
+      const pts = document.querySelector("input[name='points']");
+      const opts = whoSel ? [...whoSel.options].map((o) => o.value) : [];
+      const cats = catSel ? [...catSel.options].map((o) => o.value) : [];
+      return { hasWhoDropdown: !!whoSel, opts, hasCleaningCat: cats.includes("Cleaning"), hasPointsInput: !!pts, hasPointsHeader: document.body.textContent.includes("Points") };
+      `,
+    );
+    assert.equal(choreFormCheck.hasWhoDropdown, true, "Chores Who field should be a <select> dropdown");
+    assert.ok(choreFormCheck.opts.includes("Sushil"), "Who dropdown should list household members");
+    assert.ok(choreFormCheck.opts.includes("__new__"), "Who dropdown should offer '+ Add person…'");
+    assert.equal(choreFormCheck.hasCleaningCat, true, "Chores form should offer chore categories");
+    assert.equal(choreFormCheck.hasPointsInput, false, "Points input must be removed");
+    assert.equal(choreFormCheck.hasPointsHeader, false, "Points leaderboard must be removed");
+
+    // Populate today with 5 chores via API so the calendar day becomes .has-more and test real hover zoom
+    const todayStr = await client.eval(ctx, `
+      const d = new Date();
+      return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    `);
+    for (let i = 1; i <= 5; i++) {
+      const r = await fetch(`${baseUrl}/api/chores`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: baseUrl },
+        body: JSON.stringify({
+          title: `Chore task ${i}`,
+          assigned_to: "Sushil",
+          priority: "medium",
+          status: "todo",
+          category: "Cleaning",
+          due_date: todayStr,
+        }),
+      });
+      assert.equal(r.status, 201);
+    }
+    await client.send("browsingContext.navigate", { context: ctx, url: `${baseUrl}/#/`, wait: "complete" });
+    await waitForSelector(client, ctx, ".cell.has-more");
+    const beforeHover = await client.eval(
+      ctx,
+      `
+      const cell = document.querySelector(".cell.has-more");
+      cell.scrollIntoView({ block: "center" });
+      const inner = cell.querySelector(".cell-inner").getBoundingClientRect();
+      const extraDisp = getComputedStyle(cell.querySelector(".chip-extra")).display;
+      return { x: Math.round(inner.left + inner.width / 2), y: Math.round(inner.top + inner.height / 2), h: inner.height, extraDisp };
+      `,
+    );
+    assert.equal(beforeHover.extraDisp, "none", "Extra chips should be hidden before hover");
+
+    await client.send("input.performActions", {
+      context: ctx,
+      actions: [
+        {
+          type: "pointer",
+          id: "mouse",
+          parameters: { pointerType: "mouse" },
+          actions: [{ type: "pointerMove", duration: 0, x: beforeHover.x, y: beforeHover.y }],
+        },
+      ],
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    const afterHover = await client.eval(
+      ctx,
+      `
+      const cell = document.querySelector(".cell.has-more");
+      const inner = cell.querySelector(".cell-inner").getBoundingClientRect();
+      const extraDisp = getComputedStyle(cell.querySelector(".chip-extra")).display;
+      return { h: inner.height, extraDisp };
+      `,
+    );
+    assert.notEqual(afterHover.extraDisp, "none", "Hovering busy calendar day must reveal all extra chips");
+    assert.ok(afterHover.h > beforeHover.h, `Expected hovered calendar cell to enlarge (${afterHover.h} > ${beforeHover.h})`);
+
     assert.deepEqual(client.errors, [], `Browser console errors observed: ${client.errors.join("; ")}`);
     console.log("  - Firefox headless responsive E2E verified (390x844 mobile + 1280x800 desktop)");
   } finally {

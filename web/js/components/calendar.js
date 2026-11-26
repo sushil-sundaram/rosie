@@ -99,7 +99,12 @@ export function calendar({ chipsFor, onMove, legend }) {
       tabindex: ds === cal.sel ? "0" : "-1",
       "aria-selected": ds === cal.sel ? "true" : "false",
       "aria-label": fmtDay(ds) + (chips.length ? `, ${chips.length} item${chips.length > 1 ? "s" : ""}` : ""),
-      class: [d.getMonth() !== cal.m && "out", ds === today() && "today", ds === cal.sel && "sel"].filter(Boolean).join(" ") || null,
+      class: [
+        d.getMonth() !== cal.m && "out",
+        ds === today() && "today",
+        ds === cal.sel && "sel",
+        (chips.length > max || chips.reduce((n, c) => n + c.label.length, 0) > 42) && "has-more",
+      ].filter(Boolean).join(" ") || null,
       onclick: () => selectDay(ds),
       onkeydown: (e) => {
         const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
@@ -127,14 +132,16 @@ export function calendar({ chipsFor, onMove, legend }) {
         }
       } : null,
     },
-      h("span.dn", d.getDate()),
-      h("div.chips",
-        chips.slice(0, max).map((c) => h("span.chip", {
-          class: [c.cls, c.done && "done"].filter(Boolean).join(" "),
-          title: c.title || c.label,
-          ...(onMove && c.id != null ? dragData(c.kind, c.id, ds) : {}),
-        }, c.label)),
-        chips.length > max ? h("span.more", `+${chips.length - max}`) : null,
+      h("div.cell-inner",
+        h("span.dn", d.getDate()),
+        h("div.chips",
+          chips.map((c, idx) => h("span.chip", {
+            class: [c.cls, c.done && "done", idx >= max && "chip-extra"].filter(Boolean).join(" "),
+            title: c.title || c.label,
+            ...(onMove && c.id != null ? dragData(c.kind, c.id, ds) : {}),
+          }, c.label)),
+          chips.length > max ? h("span.more", `+${chips.length - max}`) : null,
+        ),
       ),
     );
     cells.push(cell);
