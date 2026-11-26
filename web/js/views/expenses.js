@@ -48,7 +48,7 @@ export async function expensesView(root) {
   const saveBudget = async (category, amount) => {
     try {
       await api(`/budgets/${encodeURIComponent(category)}`, { method: "PUT", body: { amount: Number(amount) || 0 } });
-      toast(`budget for ${category.toLowerCase()} saved`);
+      toast(`Budget for ${category} saved`);
       render();
     } catch (err) {
       fail(err);
@@ -61,45 +61,45 @@ export async function expensesView(root) {
     const pct = budget ? Math.min(100, (spent / budget) * 100) : 0;
     return h("li", h("div.grow",
       h("div.spread",
-        h("span", { class: CAT_COLOR[cat] }, cat.toLowerCase()),
+        h("span", { class: CAT_COLOR[cat] }, cat),
         h("span.budget-nums",
           h("span.num", moneyShort(spent)),
           h("span.meta", " / "),
           h("input.budget", {
-            type: "number", min: "0", step: "any", value: budget || "", placeholder: "set",
-            "aria-label": `monthly budget for ${cat}`, title: "monthly budget — press enter to save",
+            type: "number", min: "0", step: "any", value: budget || "", placeholder: "Set",
+            "aria-label": `Monthly budget for ${cat}`, title: "Monthly budget — press Enter to save",
             onchange: (e) => saveBudget(cat, e.target.value),
           }),
         ),
       ),
       h("div.bar", h("i", { style: `width:${budget ? pct : 0}%;background:${budgetColor(spent, budget)}` })),
-      budget && cents(spent) > cents(budget) ? h("span.meta.c-red", `over by ${moneyShort(spent - budget)}`) : null,
+      budget && cents(spent) > cents(budget) ? h("span.meta.c-red", `Over by ${moneyShort(spent - budget)}`) : null,
     ));
   };
 
   const remaining = (cents(budgetTotal) - cents(total)) / 100;
-  root.append(eyebrow("expenses"), split(
+  root.append(eyebrow("Expenses"), split(
     [
       calendar({
         chipsFor: (ds) => {
           const out = [];
           const tt = dayTotal(ds);
-          if (tt) out.push({ label: moneyShort(tt), cls: "c-pink", title: `spent ${money(tt)}` });
-          unpaid.filter((c) => c.due_date === ds).forEach((c) => out.push({ label: chipLabel(c), cls: ds < t ? "c-red" : "c-yellow", kind: "chore", id: c.id, title: `bill due: ${c.title} ${money(c.amount)}` }));
+          if (tt) out.push({ label: moneyShort(tt), cls: "c-pink", title: `Spent ${money(tt)}` });
+          unpaid.filter((c) => c.due_date === ds).forEach((c) => out.push({ label: chipLabel(c), cls: ds < t ? "c-red" : "c-yellow", kind: "chore", id: c.id, title: `Bill due: ${c.title} ${money(c.amount)}` }));
           billGhosts.filter((p) => p.date === ds).forEach((p) => out.push(ghostChip(p)));
           return out;
         },
         onMove: moveItem,
-        legend: [["spent", "c-pink"], ["bill due", "c-yellow"], ["bill overdue", "c-red"], ["upcoming repeat", "c-muted ghost"]],
+        legend: [["Spent", "c-pink"], ["Bill due", "c-yellow"], ["Bill overdue", "c-red"], ["Upcoming repeat", "c-muted ghost"]],
       }),
 
-      h("h2", "budget"),
+      h("h2", "Budget"),
       h("div.budget-head",
         h("div", h("b.num", { style: `color:${budgetColor(total, budgetTotal)}` }, moneyShort(total)),
           h("span.meta", budgetTotal ? ` of ${moneyShort(budgetTotal)}` : " spent")),
         budgetTotal ? h("span.meta", remaining >= 0
           ? `${moneyShort(remaining)} left${isCurrent ? ` · ${daysLeft} day${daysLeft === 1 ? "" : "s"} to go · ~${moneyShort(remaining / daysLeft)}/day` : ""}`
-          : `over by ${moneyShort(-remaining)}`) : h("span.meta", "set a monthly amount per category below"),
+          : `Over by ${moneyShort(-remaining)}`) : h("span.meta", "Set a monthly amount per category below"),
       ),
       budgetTotal ? h("div.bar.big", h("i", { style: `width:${Math.min(100, (total / budgetTotal) * 100)}%;background:${budgetColor(total, budgetTotal)}` })) : null,
       stillDue ? h("p.hint", h("span.c-yellow", moneyShort(stillDue)), " in bills still due this month",
@@ -107,27 +107,27 @@ export async function expensesView(root) {
       h("ul.list", CATEGORIES.filter((c) => budgetOf[c] || spentBy[c]).concat(CATEGORIES.filter((c) => !budgetOf[c] && !spentBy[c]))
         .slice(0, CATEGORIES.length).map(budgetRow)),
 
-      h("h2", "bills to pay"),
+      h("h2", "Bills to pay"),
       list(unpaid, (c) => [
-        h("span.meta.num", { class: c.due_date && c.due_date < t ? "c-red" : null }, c.due_date ? (c.due_date < t ? `overdue ${fmtDay(c.due_date)}` : fmtDay(c.due_date)) : "no date"),
+        h("span.meta.num", { class: c.due_date && c.due_date < t ? "c-red" : null }, c.due_date ? (c.due_date < t ? `Overdue ${fmtDay(c.due_date)}` : fmtDay(c.due_date)) : "No date"),
         h("span.grow.title", c.title),
         repeatTag(c),
         h("span.num", money(c.amount)),
-        h("button", { onclick: () => setChore(c, { status: "done" }), title: "mark paid and log as an expense" }, "pay"),
+        h("button", { onclick: () => setChore(c, { status: "done" }), title: "Mark paid and log as an expense" }, "Pay"),
         delBtn(`/chores/${c.id}`, c.title),
-      ], "no bills due"),
+      ], "No bills due"),
     ],
     [
       pantryReview(),
-      day.length ? [list(day, (e) => expenseRow(e, linkedCount(e))), h("p.total.right", h("span.num", money(dayTotal(cal.sel))))] : h("p.empty", "nothing spent"),
-      dayBills.length ? section("bills due", list(dayBills, (c) => [
+      day.length ? [list(day, (e) => expenseRow(e, linkedCount(e))), h("p.total.right", h("span.num", money(dayTotal(cal.sel))))] : h("p.empty", "Nothing spent"),
+      dayBills.length ? section("Bills due", list(dayBills, (c) => [
         h("span.grow.title", c.title), h("span.num", money(c.amount)),
-        h("button", { onclick: () => setChore(c, { status: "done" }) }, "pay"),
+        h("button", { onclick: () => setChore(c, { status: "done" }) }, "Pay"),
       ])) : null,
-      h("h2", "add"),
-      segmented([["expense", "expense"], ["bill", "bill to pay"]], expenseAdd, (k) => { expenseAdd = k; render(); }, "add type"),
+      h("h2", "Add"),
+      segmented([["expense", "Expense"], ["bill", "Bill to pay"]], expenseAdd, (k) => { expenseAdd = k; render(); }, "Add type"),
       expenseAdd === "bill"
-        ? [billForm(cal.sel), h("p.hint", "bills show up in chores on their due date; paying one logs it as an expense")]
+        ? [billForm(cal.sel), h("p.hint", "Bills show up in Chores on their due date; paying one logs it as an expense")]
         : expenseForm(cal.sel, true),
     ],
   ));

@@ -11,7 +11,7 @@ export const addDays = (s, n) => {
   return iso(d);
 };
 export const fmtDay = (s) =>
-  parseISO(s).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }).toLowerCase();
+  parseISO(s).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 
 /** Same rule as the server: monthly/yearly keep the anchor day, clamped to month end. */
 export function nextDate(ds, repeat, anchor) {

@@ -56,25 +56,25 @@ export async function homeView(root) {
   root.append(split(
     [
       h("div.stats",
-        stat(moneyShort(spend), budgetTotal ? `spent of ${moneyShort(budgetTotal)} budget` : "spent this month",
+        stat(moneyShort(spend), budgetTotal ? `Spent of ${moneyShort(budgetTotal)} budget` : "Spent this month",
           budgetTotal && cents(spend) > cents(budgetTotal) ? "c-red" : "c-pink"),
-        stat(`${mChores.filter((c) => c.status === "done").length}/${mChores.length}`, "chores done this month", "c-orange"),
-        stat(meals.filter((m) => inMonth(m.date)).length, "meals planned this month", "c-cyan"),
-        stat(low.length, "pantry items low", low.length ? "c-red" : "c-green"),
+        stat(`${mChores.filter((c) => c.status === "done").length}/${mChores.length}`, "Chores done this month", "c-orange"),
+        stat(meals.filter((m) => inMonth(m.date)).length, "Meals planned this month", "c-cyan"),
+        stat(low.length, "Pantry items low", low.length ? "c-red" : "c-green"),
       ),
-      h("div.layers", { role: "group", "aria-label": "show on calendar" },
-        [["meals", "c-purple"], ["chores", "c-orange"], ["expenses", "c-pink"]].map(([k, c]) =>
-          h("button.toggle", { type: "button", class: layers[k] ? `on ${c}` : null, "aria-pressed": String(!!layers[k]), onclick: () => toggleLayer(k) }, k))),
+      h("div.layers", { role: "group", "aria-label": "Show on calendar" },
+        [["meals", "Meals", "c-purple"], ["chores", "Chores", "c-orange"], ["expenses", "Expenses", "c-pink"]].map(([k, label, c]) =>
+          h("button.toggle", { type: "button", class: layers[k] ? `on ${c}` : null, "aria-pressed": String(!!layers[k]), onclick: () => toggleLayer(k) }, label))),
       calendar({ chipsFor, onMove: moveItem }),
     ],
     [
-      section("meals", list(dMeals, mealRow, "nothing planned")),
-      section("chores", list(dChores, choreRow, "no chores")),
-      section("expenses", list(dExp, expenseRow, "nothing spent")),
-      h("h2", "add to this day"),
-      segmented([["chore", "chore"], ["meal", "meal"], ["expense", "expense"]], homeAdd, (k) => { homeAdd = k; render(); }, "item type"),
+      section("Meals", list(dMeals, mealRow, "Nothing planned")),
+      section("Chores", list(dChores, choreRow, "No chores")),
+      section("Expenses", list(dExp, expenseRow, "Nothing spent")),
+      h("h2", "Add to this day"),
+      segmented([["chore", "Chore"], ["meal", "Meal"], ["expense", "Expense"]], homeAdd, (k) => { homeAdd = k; render(); }, "Item type"),
       homeAdd === "chore" ? choreForm(sel) : homeAdd === "meal" ? mealForm(sel, recipes) : expenseForm(sel),
-      low.length ? section("running low", list(low, (p) => [h("span.grow.title", p.name), h("span.num.c-red", `${fmtQty(p.quantity)} ${p.unit}`)])) : null,
+      low.length ? section("Running low", list(low, (p) => [h("span.grow.title", p.name), h("span.num.c-red", `${fmtQty(p.quantity)} ${p.unit}`)])) : null,
     ],
   ));
 }

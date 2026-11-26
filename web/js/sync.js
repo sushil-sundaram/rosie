@@ -29,7 +29,7 @@ export function createSync(onRefresh, onInvalidate = () => {}, onJob = () => {})
   const tryRefresh = (force = false) => {
     if (!stale) return;
     if (!force && busy()) {
-      setDot("live pending", "someone else made changes — click to load them");
+      setDot("live pending", "Someone else made changes — click to load them");
       return;
     }
     stale = false;
@@ -37,7 +37,7 @@ export function createSync(onRefresh, onInvalidate = () => {}, onJob = () => {})
     pendingPaths.clear();
     fullRefresh = false;
     onInvalidate(paths);
-    setDot("live", "live — changes from other devices appear automatically");
+    setDot("live", "Live — changes from other devices appear automatically");
     onRefresh();
   };
   const refreshSoon = (path = null) => {
@@ -53,7 +53,7 @@ export function createSync(onRefresh, onInvalidate = () => {}, onJob = () => {})
     stale = false;
     pendingPaths.clear();
     fullRefresh = false;
-    if (dot.classList.contains("pending")) setDot("live", "live — changes from other devices appear automatically");
+    if (dot.classList.contains("pending")) setDot("live", "Live — changes from other devices appear automatically");
   };
 
   dot.addEventListener("click", () => tryRefresh(true));
@@ -67,14 +67,14 @@ export function createSync(onRefresh, onInvalidate = () => {}, onJob = () => {})
       es.close();
       es = null;
     }
-    setDot("", "signed out");
+    setDot("", "Signed out");
   }
   function connect() {
     if (!window.EventSource || es) return;
     es = new EventSource(API + "/events");
     es.onopen = () => {
       retry = 1000;
-      setDot("live", "live — changes from other devices appear automatically");
+      setDot("live", "Live — changes from other devices appear automatically");
       if (wasDown) {
         wasDown = false;
         refreshSoon();
@@ -82,7 +82,7 @@ export function createSync(onRefresh, onInvalidate = () => {}, onJob = () => {})
     };
     es.onerror = () => {
       wasDown = true;
-      setDot("", "offline — reconnecting…");
+      setDot("", "Offline — reconnecting…");
       // EventSource retries network drops itself, but gives up for good after
       // an error response (a proxy 502, say): then reconnect ourselves.
       if (es && es.readyState === EventSource.CLOSED) {

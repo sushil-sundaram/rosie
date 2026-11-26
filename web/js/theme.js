@@ -20,7 +20,7 @@ export function syncThemeColor() {
   document.documentElement.classList.toggle("is-light", light);
   const btn = document.getElementById("theme-toggle");
   if (btn) {
-    const label = `switch to ${light ? "dark" : "light"} mode`;
+    const label = `Switch to ${light ? "dark" : "light"} mode`;
     btn.setAttribute("aria-label", label);
     btn.title = label;
   }

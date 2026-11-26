@@ -68,6 +68,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
 
 ## P3 — UX Improvements (Phone + Laptop/Desktop)
 
+- [x] **Capitalize the first letter in all menu and UI items** (`web/index.html`, `web/app.css`, `web/js/**`)
 - [ ] **Responsive navigation & thumb-friendly touch targets** (`web/index.html`, `web/app.css`)
   - **Mobile (`<= 768px`)**: Move primary navigation to a fixed bottom tab bar (`Today`, `Pantry`, `Meals`, `Chores`, `Money`) with `>= 44×44 px` tap targets and safe-area padding; keep a slim top header for title, sync indicator, theme toggle, and Settings.
   - **Desktop (`> 960px`)**: Retain top nav (or sidebar rail) + keyboard shortcuts (`g h`, `g p`, `/` search, `n` new item, `Esc` dismiss).
@@ -93,7 +94,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
   - Separate **Bills** cleanly on the Chores Kanban board (`web/app.js:678-694`): show bill amount tags and require an explicit `Pay` action (not silent 3-state cycling) with undo feedback.
   - Offer quick-pick chips / autocomplete of existing household members in chore/bill forms to avoid name typos splitting points.
   - Expose date inline in `expenseForm` (`web/app.js:532`) instead of hiding it, especially after receipt scanning.
-- [ ] **Fix dark-mode text contrast & remove dead CSS** (`web/app.css`)
+- [x] **Fix dark-mode text contrast & remove dead CSS** (`web/app.css`)
   - Brighten `--muted` (`#6272a4` on `#282a36`, `L7`) and `.cell.out .dn` (`L218`) for comfortable legibility on mobile screens outdoors.
   - Remove unused `.week-nav`, `.day`, and `.meal` classes (`L151-156`) if superseded by the new mobile agenda/week views.
 

@@ -48,7 +48,7 @@ export async function render() {
   } catch (err) {
     const auth = getAuthState();
     if (auth.required && !auth.authenticated) renderLogin(next);
-    else next.replaceChildren(h("h1", "offline"), h("p.sub.c-red", err.message), h("button", { onclick: render }, "retry"));
+    else next.replaceChildren(h("h1", "Offline"), h("p.sub.c-red", err.message), h("button", { onclick: render }, "Retry"));
   }
   if (gen !== renderGen) return;
   root.replaceChildren(next);
@@ -57,5 +57,5 @@ export async function render() {
     const c = root.querySelector(".cell.sel");
     if (c) c.focus();
   }
-  document.title = route === "home" ? "Rosie" : `${route} · Rosie`;
+  document.title = route === "home" ? "Rosie" : `${route[0].toUpperCase() + route.slice(1)} · Rosie`;
 }
