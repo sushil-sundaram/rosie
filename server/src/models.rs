@@ -13,6 +13,8 @@ pub struct PantryItem {
     /// Expense this item was bought with, if any.
     #[serde(default)]
     pub expense_id: Option<i64>,
+    #[serde(default)]
+    pub low_threshold: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, FromRow)]

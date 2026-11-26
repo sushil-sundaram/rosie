@@ -1,7 +1,10 @@
 import { api } from "../api.js";
 import { delBtn, fail, h, list, safeHref, safeImg, toast } from "../dom.js";
 import { submitAiJob } from "../jobs.js";
-import { render } from "../router.js";
+import { fmtQty } from "../money.js";
+import { matchRecipePantry } from "../pantry_match.js";
+import { consumeRecipeOpen, render } from "../router.js";
+import { showModal } from "../shortcuts.js";
 import { cached } from "../store.js";
 import { photoButton } from "../components/domain.js";
 
@@ -174,19 +177,208 @@ function stepGroups(steps) {
   return out;
 }
 
-function recipeCard(r) {
+async function deductFromPantry(deductItems) {
+  if (!deductItems.length) return toast("No matched pantry quantities to deduct");
+  try {
+    await Promise.all(
+      deductItems.map((d) => api(`/pantry/${d.id}/adjust`, { method: "POST", body: { delta: -d.delta } })),
+    );
+    toast(`Deducted ${deductItems.length} pantry item${deductItems.length === 1 ? "" : "s"}`);
+    render();
+  } catch (err) {
+    fail(err);
+  }
+}
+
+async function addMissingToPantry(missingItems) {
+  if (!missingItems.length) return;
+  try {
+    const out = await api("/pantry/batch", { method: "POST", body: { expense_id: null, items: missingItems } });
+    toast(`Pantry: ${out.added} added, ${out.topped_up} topped up`);
+    render();
+  } catch (err) {
+    fail(err);
+  }
+}
+
+function openCookMode(r, matchInfo) {
+  const steps = lines(r.instructions);
+  const doneIng = new Set();
+  const doneStep = new Set();
+  let wakeSentinel = null;
+  let wakeStatus = "Requesting screen lock…";
+  let closed = false;
+
+  const wrap = h("div.cook-body");
+
+  const acquireWake = async () => {
+    if (closed || !navigator.wakeLock?.request) {
+      wakeStatus = "Screen wake lock unavailable in this browser";
+      updateWakeNote();
+      return;
+    }
+    try {
+      wakeSentinel = await navigator.wakeLock.request("screen");
+      wakeStatus = "Screen kept awake while cooking";
+      wakeSentinel.addEventListener("release", () => {
+        if (!closed) {
+          wakeStatus = "Screen lock paused";
+          updateWakeNote();
+        }
+      });
+    } catch {
+      wakeStatus = "Keep-awake requires HTTPS or install as PWA";
+    }
+    updateWakeNote();
+  };
+
+  const onVisibility = () => {
+    if (!closed && document.visibilityState === "visible" && (!wakeSentinel || wakeSentinel.released)) {
+      acquireWake();
+    }
+  };
+
+  const updateWakeNote = () => {
+    const el = wrap.querySelector(".cook-wake");
+    if (el) el.textContent = wakeStatus;
+  };
+
+  document.addEventListener("visibilitychange", onVisibility);
+
+  const renderCook = () => {
+    const ingNodes = (r.ingredients || []).map((ing, idx) => {
+      const m = matchInfo.matches[idx];
+      const checked = doneIng.has(idx);
+      const pill = m
+        ? (m.status === "available"
+          ? h("span.tag.c-green", "In pantry")
+          : m.status === "low"
+            ? h("span.tag.c-orange", `Have ${fmtQty(m.pantryItem.quantity)} ${m.pantryItem.unit}`)
+            : m.status === "check"
+              ? h("span.tag.c-cyan", `Have ${fmtQty(m.pantryItem.quantity)} ${m.pantryItem.unit}`)
+              : h("span.tag.c-red", "Missing"))
+        : null;
+      return h(
+        "label.cook-check",
+        { class: checked ? "done" : null },
+        h("input", {
+          type: "checkbox",
+          checked,
+          onchange: (e) => {
+            if (e.target.checked) doneIng.add(idx);
+            else doneIng.delete(idx);
+            renderCook();
+          },
+        }),
+        h("span.grow", ing.text),
+        pill,
+      );
+    });
+
+    const stepNodes = steps.map((s, idx) => {
+      if (s.endsWith(":") && s.length < 60 && (/^for\b/i.test(s) || s.split(/\s+/).length <= 3)) {
+        return h("p.step-section", s.slice(0, -1));
+      }
+      const checked = doneStep.has(idx);
+      return h(
+        "label.cook-step",
+        { class: checked ? "done" : null },
+        h("input", {
+          type: "checkbox",
+          checked,
+          onchange: (e) => {
+            if (e.target.checked) doneStep.add(idx);
+            else doneStep.delete(idx);
+            renderCook();
+          },
+        }),
+        h("span.cook-step-num", `${idx + 1}.`),
+        h("span.cook-step-text", s),
+      );
+    });
+
+    const meta = [fmtTime(r.time_minutes), r.servings && (/^\d+$/.test(r.servings) ? `Serves ${r.servings}` : r.servings)].filter(Boolean).join(" · ");
+    wrap.replaceChildren(
+      h("div.spread", h("span.meta", meta || "Cook mode"), h("span.meta.cook-wake", wakeStatus)),
+      ingNodes.length ? [h("h4", "Ingredients"), h("div.cook-list", ingNodes)] : null,
+      stepNodes.length ? [h("h4", "Steps"), h("div.cook-list", stepNodes)] : h("p.empty", "No steps recorded for this recipe."),
+      h(
+        "div.scan",
+        matchInfo.deductItems.length
+          ? h("button.primary", { type: "button", onclick: () => deductFromPantry(matchInfo.deductItems) }, `Deduct used (${matchInfo.deductItems.length}) from pantry`)
+          : null,
+        h("button", { type: "button", onclick: () => close() }, "Done cooking"),
+      ),
+    );
+  };
+
+  renderCook();
+  const { close } = showModal({
+    title: r.name,
+    body: wrap,
+    className: "cook-dialog",
+    backdropClass: "sheet-mobile",
+    onClose: () => {
+      closed = true;
+      document.removeEventListener("visibilitychange", onVisibility);
+      wakeSentinel?.release().catch(() => {});
+      wakeSentinel = null;
+    },
+  });
+  acquireWake();
+}
+
+function recipeCard(r, pantry) {
   const steps = lines(r.instructions);
   const facts = [fmtTime(r.time_minutes), r.servings && (/^\d+$/.test(r.servings) ? `Serves ${r.servings}` : r.servings)].filter(Boolean);
   const imgUrl = safeImg(r.image_url);
   const srcUrl = safeHref(r.source_url);
+  const matchInfo = matchRecipePantry(r.ingredients || [], pantry);
+  const matchTag = r.ingredients?.length
+    ? h(
+        "span.tag",
+        {
+          class: matchInfo.availableCount === matchInfo.totalCount
+            ? "c-green"
+            : matchInfo.availableCount > 0
+              ? "c-orange"
+              : "c-muted",
+        },
+        `${matchInfo.availableCount}/${matchInfo.totalCount} in pantry`,
+      )
+    : null;
   return [
-    h("details.grow.recipe", { open: openRecipes.has(r.id), ontoggle: (e) => { if (e.target.open) openRecipes.add(r.id); else openRecipes.delete(r.id); } },
-      h("summary", h("span.title", r.name), facts.length ? h("span.meta", " · " + facts.join(" · ")) : null),
+    h("details.grow.recipe", {
+      "data-recipe-id": r.id,
+      open: openRecipes.has(r.id),
+      ontoggle: (e) => { if (e.target.open) openRecipes.add(r.id); else openRecipes.delete(r.id); },
+    },
+      h("summary", h("span.title", r.name), facts.length ? h("span.meta", " · " + facts.join(" · ")) : null, " ", matchTag),
       h("div.recipe-body",
         imgUrl ? h("img.photo", { src: imgUrl, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }) : null,
-        r.ingredients.length ? [h("h4", `Ingredients (${r.ingredients.length})`), h("ul.ingredients", r.ingredients.map((i) => h("li", i.text)))] : null,
+        r.ingredients.length ? [
+          h("h4", `Ingredients (${r.ingredients.length})`),
+          h("ul.ingredients", r.ingredients.map((i, idx) => {
+            const m = matchInfo.matches[idx];
+            const badge = m?.status === "available"
+              ? h("span.ing-status.c-green", " · In pantry")
+              : m?.status === "low"
+                ? h("span.ing-status.c-orange", ` · Have ${fmtQty(m.pantryItem.quantity)} ${m.pantryItem.unit}`)
+                : m?.status === "check"
+                  ? h("span.ing-status.c-cyan", ` · Have ${fmtQty(m.pantryItem.quantity)} ${m.pantryItem.unit}`)
+                  : h("span.ing-status.c-red", " · Missing");
+            return h("li", i.text, badge);
+          })),
+        ] : null,
         steps.length ? [h("h4", "Steps"), stepGroups(steps)] : null,
         h("div.scan",
+          h("button.primary", { type: "button", onclick: () => openCookMode(r, matchInfo) }, "Cook mode"),
+          matchInfo.deductItems.length
+            ? h("button", { type: "button", onclick: () => deductFromPantry(matchInfo.deductItems) }, `Deduct (${matchInfo.deductItems.length}) from pantry`)
+            : null,
+          matchInfo.missingItems.length
+            ? h("button", { type: "button", onclick: () => addMissingToPantry(matchInfo.missingItems) }, `Add ${matchInfo.missingItems.length} missing`)
+            : null,
           h("button", { type: "button", onclick: async () => { recipeDraft = asDraft(r); await render(); window.scrollTo(0, 0); } }, "Edit"),
           srcUrl ? h("a.meta", { href: srcUrl, target: "_blank", rel: "noopener noreferrer" }, hostOf(srcUrl) + " ↗") : null))),
     delBtn(`/recipes/${r.id}`, r.name),
@@ -194,12 +386,25 @@ function recipeCard(r) {
 }
 
 export async function recipesView(root) {
-  const recipes = await cached("recipes", "/recipes");
+  const [recipes, pantry] = await Promise.all([
+    cached("recipes", "/recipes"),
+    cached("pantry", "/pantry"),
+  ]);
+  const openTarget = consumeRecipeOpen();
+  if (openTarget) openRecipes.add(openTarget);
+
   root.append(h("div.narrow",
     h("h1", "Recipes"),
     h("p.sub", `${recipes.length} saved`),
     recipeDraft ? recipeEditor() : recipeImport(),
     h("h2", "Recipe box"),
-    list(recipes, recipeCard, "No recipes yet — paste a link from any recipe site to start"),
+    list(recipes, (r) => recipeCard(r, pantry), "No recipes yet — paste a link from any recipe site to start"),
   ));
+
+  if (openTarget) {
+    requestAnimationFrame(() => {
+      const targetEl = document.querySelector(`[data-recipe-id="${openTarget}"]`);
+      if (targetEl) targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
 }

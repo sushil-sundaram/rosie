@@ -21,6 +21,7 @@ const SHELL_ASSETS = [
   "/js/shortcuts.js",
   "/js/store.js",
   "/js/jobs.js",
+  "/js/pantry_match.js",
   "/js/components/calendar.js",
   "/js/components/domain.js",
   "/js/components/quick_add.js",
