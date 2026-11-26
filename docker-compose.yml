@@ -26,9 +26,11 @@ services:
       - OLLAMA_BASE_URL=http://127.0.0.1:11434
       - OLLAMA_VISION_MODEL=llama3.2-vision
       - RUST_LOG=info
-      # Extra host names allowed to serve Rosie (IP addresses, localhost, *.local,
-      # *.lan, *.home.arpa and Tailscale *.ts.net names always work).
-      # - ALLOWED_HOSTS=rosie.example.home
+      # Extra host names or suffixes allowed to serve Rosie (IP addresses, localhost,
+      # *.local, *.lan, and *.home.arpa always work; add *.your-tailnet.ts.net if using Tailscale MagicDNS).
+      # - ALLOWED_HOSTS=*.your-tailnet.ts.net,rosie.example.home
+      # Set TRUST_PROXY=1 if terminating HTTPS behind a non-loopback reverse proxy.
+      # - TRUST_PROXY=1
     volumes:
       # :Z relabels for SELinux (Fedora) so the container can write the DB
       - ./data:/app/data:Z

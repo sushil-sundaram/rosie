@@ -80,7 +80,8 @@ Environment variables are set in [`docker-compose.yml`](docker-compose.yml).
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama endpoint. The container uses host networking so that it can reach an Ollama instance bound to the host's loopback interface. |
 | `OLLAMA_VISION_MODEL` | `llama3.2-vision` | Vision model used for receipts, pantry photos and recipe photos. |
 | `OLLAMA_TEXT_MODEL` | value of `OLLAMA_VISION_MODEL` | Optional. Model used to read recipe text and web pages without recipe data. A smaller text model, such as `qwen2.5:7b`, is faster. |
-| `ALLOWED_HOSTS` | *(none)* | Optional, comma-separated. Extra host names Rosie will answer to. IP addresses, `localhost`, single-word names, `*.local`, `*.lan`, `*.home.arpa` and Tailscale `*.ts.net` names always work. |
+| `ALLOWED_HOSTS` | *(none)* | Optional, comma-separated. Extra host names or `*.suffix` entries Rosie will answer to (e.g. `*.your-tailnet.ts.net`). IP addresses, `localhost`, single-word names, `*.local`, `*.lan` and `*.home.arpa` always work. |
+| `TRUST_PROXY` | *(unset)* | Set to `1` when behind a non-loopback TLS reverse proxy so `X-Forwarded-Proto` is honored (loopback proxies are trusted automatically). |
 | `BIND_ADDR` | `0.0.0.0` | Interface to listen on, e.g. a single LAN address. |
 
 ## Access from other devices

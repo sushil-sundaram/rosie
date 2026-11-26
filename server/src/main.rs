@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bind = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string());
     let listener = tokio::net::TcpListener::bind(format!("{bind}:{port}")).await?;
     tracing::info!("listening on {}", listener.local_addr()?);
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
 
     Ok(())
 }
