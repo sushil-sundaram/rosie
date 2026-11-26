@@ -7,7 +7,7 @@ import { cached } from "../store.js";
 import { cal, calendar, gridRange, inMonth, monthKey, moveItem, split } from "../components/calendar.js";
 import {
   billForm, chipLabel, expenseForm, expenseRow, ghostChip,
-  pantryReview, projected, repeatTag, setChore,
+  moveBtn, pantryReview, projected, repeatTag, setChore,
 } from "../components/domain.js";
 
 let expenseAdd = "expense";
@@ -23,6 +23,7 @@ export async function expensesView(root) {
     cached("pantry", "/pantry"),
   ]);
   const linkedCount = (e) => pantry.filter((p) => p.expense_id === e.id).length;
+  const paidBillExpenseIds = new Set(chores.filter((c) => c.expense_id != null).map((c) => c.expense_id));
   const month = expenses.filter((e) => inMonth(e.date));
   const total = month.reduce((s, e) => s + e.amount, 0);
   const spentBy = {};
@@ -58,18 +59,42 @@ export async function expensesView(root) {
   const budgetRow = (cat) => {
     const spent = spentBy[cat] || 0;
     const budget = budgetOf[cat] || 0;
+    const initial = budget ? String(budget) : "";
     const pct = budget ? Math.min(100, (spent / budget) * 100) : 0;
+    let savedValue = initial;
+    let saving = false;
+    const saveBtn = h("button.tag.linkish.c-purple.budget-save", { type: "submit", hidden: true }, "Save");
+    const input = h("input.budget", {
+      type: "number", min: "0", step: "any", value: initial, placeholder: "Set",
+      "aria-label": `Monthly budget for ${cat}`,
+      oninput: () => { saveBtn.hidden = input.value === savedValue; },
+      onblur: (e) => {
+        if (e.relatedTarget === saveBtn) return;
+        if (input.value !== savedValue) commit();
+      },
+    });
+    const commit = async () => {
+      if (saving || input.value === savedValue) return;
+      saving = true;
+      savedValue = input.value;
+      saveBtn.hidden = true;
+      await saveBudget(cat, input.value);
+      saving = false;
+    };
     return h("li", h("div.grow",
       h("div.spread",
         h("span", { class: CAT_COLOR[cat] }, cat),
-        h("span.budget-nums",
+        h("form.budget-nums",
+          {
+            onsubmit: (e) => {
+              e.preventDefault();
+              commit();
+            },
+          },
           h("span.num", moneyShort(spent)),
           h("span.meta", " / "),
-          h("input.budget", {
-            type: "number", min: "0", step: "any", value: budget || "", placeholder: "Set",
-            "aria-label": `Monthly budget for ${cat}`, title: "Monthly budget — press Enter to save",
-            onchange: (e) => saveBudget(cat, e.target.value),
-          }),
+          input,
+          saveBtn,
         ),
       ),
       h("div.bar", h("i", { style: `width:${budget ? pct : 0}%;background:${budgetColor(spent, budget)}` })),
@@ -104,6 +129,7 @@ export async function expensesView(root) {
       budgetTotal ? h("div.bar.big", h("i", { style: `width:${Math.min(100, (total / budgetTotal) * 100)}%;background:${budgetColor(total, budgetTotal)}` })) : null,
       stillDue ? h("p.hint", h("span.c-yellow", moneyShort(stillDue)), " in bills still due this month",
         budgetTotal ? ` · ${moneyShort(budgetTotal - total - stillDue)} free after bills` : "") : null,
+      h("p.hint", "Tap a budget amount below and press Enter or tap Save to update."),
       h("ul.list", CATEGORIES.filter((c) => budgetOf[c] || spentBy[c]).concat(CATEGORIES.filter((c) => !budgetOf[c] && !spentBy[c]))
         .slice(0, CATEGORIES.length).map(budgetRow)),
 
@@ -113,16 +139,18 @@ export async function expensesView(root) {
         h("span.grow.title", c.title),
         repeatTag(c),
         h("span.num", money(c.amount)),
-        h("button", { onclick: () => setChore(c, { status: "done" }), title: "Mark paid and log as an expense" }, "Pay"),
+        moveBtn("chore", c.id, c.title, c.due_date),
+        h("button", { type: "button", onclick: () => setChore(c, { status: "done" }) }, "Pay"),
         delBtn(`/chores/${c.id}`, c.title),
       ], "No bills due"),
     ],
     [
       pantryReview(),
-      day.length ? [list(day, (e) => expenseRow(e, linkedCount(e))), h("p.total.right", h("span.num", money(dayTotal(cal.sel))))] : h("p.empty", "Nothing spent"),
+      day.length ? [list(day, (e) => expenseRow(e, linkedCount(e), paidBillExpenseIds.has(e.id))), h("p.total.right", h("span.num", money(dayTotal(cal.sel))))] : h("p.empty", "Nothing spent"),
       dayBills.length ? section("Bills due", list(dayBills, (c) => [
         h("span.grow.title", c.title), h("span.num", money(c.amount)),
-        h("button", { onclick: () => setChore(c, { status: "done" }) }, "Pay"),
+        moveBtn("chore", c.id, c.title, c.due_date),
+        h("button", { type: "button", onclick: () => setChore(c, { status: "done" }) }, "Pay"),
       ])) : null,
       h("h2", "Add"),
       segmented([["expense", "Expense"], ["bill", "Bill to pay"]], expenseAdd, (k) => { expenseAdd = k; render(); }, "Add type"),

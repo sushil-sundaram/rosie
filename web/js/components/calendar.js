@@ -59,18 +59,20 @@ export const dragData = (kind, id, from) => ({
   },
 });
 
-/** Drop handler shared by every calendar: reschedule a chore or meal. */
+/** Drop or tap handler shared across views: reschedule a chore or meal. */
 export async function moveItem(kind, id, date) {
   const numId = Number(id);
-  if (!Number.isInteger(numId) || numId <= 0) return;
+  if (!Number.isInteger(numId) || numId <= 0) return false;
   try {
-    if (kind === "chore") await api(`/chores/${numId}`, { method: "PATCH", body: { due_date: date } });
-    else if (kind === "meal") await api(`/meals/${numId}`, { method: "PATCH", body: { date } });
-    else return;
-    toast(`Moved to ${fmtDay(date)}`);
+    if (kind === "chore") await api(`/chores/${numId}`, { method: "PATCH", body: { due_date: date ?? "" } });
+    else if (kind === "meal" && date) await api(`/meals/${numId}`, { method: "PATCH", body: { date } });
+    else return false;
+    toast(date ? `Moved to ${fmtDay(date)}` : "Unscheduled");
     render();
+    return true;
   } catch (err) {
     fail(err);
+    return false;
   }
 }
 
@@ -151,7 +153,7 @@ export function calendar({ chipsFor, onMove, legend }) {
     h("div.cal-grid.dow", { "aria-hidden": "true" }, ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => h("div", d))),
     h("div.cal-grid", { role: "grid", "aria-label": title }, cells),
     legend ? h("div.legend", legend.map(([label, cls]) => h("span", h("i", { class: cls }), label))) : null,
-    onMove ? h("p.hint", "Drag items between days to reschedule · Arrow keys move the selection") : null,
+    onMove ? h("p.hint", "Drag items between days or tap Move · Arrow keys move selection") : null,
   );
 }
 

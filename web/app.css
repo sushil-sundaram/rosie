@@ -135,7 +135,7 @@ h2::before { content: "# "; color: var(--line); }
 /* lists */
 ul.list { list-style: none; margin: 0; padding: 0; }
 ul.list li {
-  display: flex; align-items: center; gap: 12px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px;
   padding: 10px 0; border-bottom: 1px solid var(--line);
 }
 ul.list li:last-child { border-bottom: 0; }
@@ -400,6 +400,20 @@ body.is-locked .fab, body.is-locked .bottom-nav { display: none !important; }
 .quick-tabs { display: flex; flex-wrap: wrap; width: 100%; }
 .quick-tabs button { flex: 1 1 auto; }
 .row-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+
+/* ---------- visible sync banner, inline confirm, move quick actions ---------- */
+.sync-banner {
+  display: block; width: calc(100% - 28px); max-width: 1148px; margin: 4px auto 0;
+  padding: 8px 14px; border-radius: 8px; text-align: center;
+  font: 500 13px var(--mono); color: var(--orange);
+  background: color-mix(in srgb, var(--orange) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--orange) 45%, transparent);
+}
+.sync-banner[hidden] { display: none; }
+.del-wrap { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.move-quick { display: flex; flex-wrap: wrap; gap: 8px; }
+.move-quick button { flex: 1 1 auto; }
+.budget-save { flex: none; }
 
 /* ---------- modals & shortcuts ---------- */
 .modal-backdrop {

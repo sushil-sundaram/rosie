@@ -77,7 +77,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
   - **Desktop**: Keep the 2-column split month calendar + sticky right day inspector.
 - [x] **Universal quick capture (`+` FAB / bottom sheet)**
   - Add a persistent `+` action on mobile (and shortcut/button on desktop) to log an expense, scan a receipt, add a pantry item, or add a chore in 1–2 taps from any screen.
-- [ ] **Touch-friendly rescheduling & visible affordances** (`web/app.js:133-140, 209, 670`)
+- [x] **Touch-friendly rescheduling & visible affordances** (`web/app.js:133-140, 209, 670`)
   - Keep drag-and-drop as a desktop shortcut, and add a tap-friendly **Move / Reschedule** date picker/quick actions (`Today`, `Tomorrow`, `+1 week`) on chores, bills, and meals.
   - Replace hover-only `title` tooltips with visible labels/pills (sync waiting banner, repeat badge actions, budget save feedback, linked-expense info).
   - Replace blocking `confirm()` dialogs (`web/app.js:104, 318`) with inline confirmation or an Undo toast.
