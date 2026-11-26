@@ -2,6 +2,7 @@ import { api } from "../api.js";
 import { addDays, fmtDay, parseISO, today } from "../dates.js";
 import { delBtn, fail, formData, h, list, toast } from "../dom.js";
 import { fmtQty, money, moneyShort } from "../money.js";
+import { defaultLowThreshold, isPantryLow } from "../pantry_match.js";
 import { render } from "../router.js";
 import { cached } from "../store.js";
 import { cal } from "../components/calendar.js";
@@ -42,6 +43,7 @@ export async function pantryView(root) {
                 quantity: Number(d.quantity) || 0,
                 unit: d.unit.trim() || "pcs",
                 expires_on: d.expires_on || "",
+                low_threshold: d.low_threshold !== "" ? Number(d.low_threshold) : null,
               },
             });
             close();
@@ -58,6 +60,18 @@ export async function pantryView(root) {
         h("input", { name: "quantity", type: "number", step: "any", min: "0", value: it.quantity, required: true, "aria-label": "Quantity" }),
         h("input", { name: "unit", value: it.unit, placeholder: "Unit", "aria-label": "Unit" }),
         h("input", { name: "expires_on", type: "date", value: it.expires_on || "", "aria-label": "Expiry date" }),
+      ),
+      h("label.field",
+        h("span.meta", "Low-stock alert at or below"),
+        h("input", {
+          name: "low_threshold",
+          type: "number",
+          step: "any",
+          min: "0",
+          value: it.low_threshold ?? "",
+          placeholder: `Auto (${defaultLowThreshold(it.unit)} ${it.unit})`,
+          "aria-label": "Low stock threshold",
+        }),
       ),
       h("button.primary", { type: "submit" }, "Save changes"),
     );
@@ -121,9 +135,9 @@ export async function pantryView(root) {
     return "";
   }, "pantry");
 
-  const low = items.filter((i) => i.quantity <= 1);
+  const low = items.filter(isPantryLow);
   // Low items first, then alphabetical.
-  const sorted = [...items].sort((a, b) => (b.quantity <= 1) - (a.quantity <= 1) || a.name.localeCompare(b.name));
+  const sorted = [...items].sort((a, b) => isPantryLow(b) - isPantryLow(a) || a.name.localeCompare(b.name));
 
   root.append(h("div.narrow",
     h("h1", "Pantry"),
@@ -137,7 +151,7 @@ export async function pantryView(root) {
       expiryTag(it),
       boughtTag(it),
       h("button.icon", { title: "Decrease", "aria-label": `Decrease ${it.name}`, onclick: () => adjust(it, -1), disabled: it.quantity <= 0 }, "−"),
-      h("span.num", { class: it.quantity <= 1 ? "c-red" : "c-green" }, `${fmtQty(it.quantity)} ${it.unit}`),
+      h("span.num", { class: isPantryLow(it) ? "c-red" : "c-green" }, `${fmtQty(it.quantity)} ${it.unit}`),
       h("button.icon", { title: "Increase", "aria-label": `Increase ${it.name}`, onclick: () => adjust(it, 1) }, "+"),
       editBtn(it.name, () => openEditModal(it)),
       delBtn(`/pantry/${it.id}`, it.name),

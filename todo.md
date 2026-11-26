@@ -84,7 +84,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
 - [x] **Add Edit UIs across all entities**
   - Wire up pantry item editing (already partially stubbed in `web/app.js:898` and `PUT /api/pantry/{id}`) to edit name, quantity, unit, and expiry date.
   - Add `PATCH`/`PUT` editing for chores, bills, and expenses (title, amount, category, date, assigned member, priority, points).
-- [ ] **Connect Meals, Recipes, and Pantry end-to-end** (`web/app.js:365, 712`)
+- [x] **Connect Meals, Recipes, and Pantry end-to-end** (`web/app.js:365, 712`)
   - Make meals with `recipe_id` clickable to open the recipe directly from `Home` and `Meals`.
   - Add **Cook Mode** on recipes (large step typography, checkable ingredients/steps, Screen Wake Lock via `navigator.wakeLock`).
   - Surface **pantry matching** using already-parsed `recipe_ingredients` (`name`, `quantity`, `unit`): show available vs. missing ingredients and allow 1-tap pantry deduction when cooking.

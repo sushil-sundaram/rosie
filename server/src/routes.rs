@@ -70,6 +70,9 @@ async fn update_pantry_item(
     if !valid_text(&payload.name) || !valid_amount(payload.quantity) || payload.unit.trim().len() > 30 {
         return bad_request("an item needs a name and a quantity of 0 or more");
     }
+    if payload.low_threshold.is_some_and(|t| !valid_amount(t)) {
+        return bad_request("low_threshold must be 0 or more");
+    }
     let expiry = payload.expires_on.as_deref().map(str::trim);
     if expiry.is_some_and(|d| !d.is_empty() && !valid_date(d)) {
         return bad_request("expires_on must be a real date (YYYY-MM-DD)");
@@ -77,12 +80,14 @@ async fn update_pantry_item(
     // Missing expires_on keeps the current one; "" clears it.
     match sqlx::query(
         "UPDATE pantry_items SET name = ?1, quantity = ?2, unit = ?3, \
-         expires_on = CASE WHEN ?4 IS NULL THEN expires_on WHEN ?4 = '' THEN NULL ELSE ?4 END WHERE id = ?5",
+         expires_on = CASE WHEN ?4 IS NULL THEN expires_on WHEN ?4 = '' THEN NULL ELSE ?4 END, \
+         low_threshold = ?5 WHERE id = ?6",
     )
         .bind(payload.name.trim())
-        .bind(payload.quantity)
+        .bind(payload.quantity.min(1e9))
         .bind(payload.unit.trim())
         .bind(expiry)
+        .bind(payload.low_threshold)
         .bind(id)
         .execute(&pool)
         .await
@@ -755,16 +760,20 @@ async fn add_pantry_item(
     if !valid_text(&payload.name) || !valid_amount(payload.quantity) || payload.unit.trim().len() > 30 {
         return bad_request("an item needs a name and a quantity of 0 or more");
     }
+    if payload.low_threshold.is_some_and(|t| !valid_amount(t)) {
+        return bad_request("low_threshold must be 0 or more");
+    }
     if payload.expires_on.as_deref().is_some_and(|d| !d.is_empty() && !valid_date(d)) {
         return bad_request("expires_on must be a real date (YYYY-MM-DD)");
     }
     let result = sqlx::query(
-        "INSERT INTO pantry_items (name, quantity, unit, expires_on) VALUES (?, ?, ?, ?)"
+        "INSERT INTO pantry_items (name, quantity, unit, expires_on, low_threshold) VALUES (?, ?, ?, ?, ?)"
     )
     .bind(payload.name.trim())
     .bind(payload.quantity.min(1e9))
     .bind(payload.unit.trim())
     .bind(payload.expires_on.as_deref().filter(|d| valid_date(d)))
+    .bind(payload.low_threshold)
     .execute(&pool)
     .await;
 
@@ -1307,6 +1316,7 @@ mod tests {
                 unit: " L ".into(),
                 expires_on: None,
                 expense_id: None,
+                low_threshold: None,
             }),
         )
         .await
@@ -1329,6 +1339,7 @@ mod tests {
                 unit: "L".into(),
                 expires_on: Some("2026-12-10".into()),
                 expense_id: None,
+                low_threshold: None,
             }),
         )
         .await
@@ -1348,6 +1359,7 @@ mod tests {
                 unit: "L".into(),
                 expires_on: Some("".into()),
                 expense_id: None,
+                low_threshold: None,
             }),
         )
         .await
@@ -1367,6 +1379,7 @@ mod tests {
                 unit: "pcs".into(),
                 expires_on: None,
                 expense_id: None,
+                low_threshold: None,
             }),
         )
         .await
@@ -1481,8 +1494,8 @@ mod tests {
             Json(PantryBatch {
                 expense_id: None,
                 items: vec![
-                    PantryItem { id: 0, name: "Sugar".into(), quantity: 9e8, unit: "g".into(), expires_on: None, expense_id: None },
-                    PantryItem { id: 0, name: "Sugar".into(), quantity: 5e8, unit: "g".into(), expires_on: None, expense_id: None },
+                    PantryItem { id: 0, name: "Sugar".into(), quantity: 9e8, unit: "g".into(), expires_on: None, expense_id: None, low_threshold: None },
+                    PantryItem { id: 0, name: "Sugar".into(), quantity: 5e8, unit: "g".into(), expires_on: None, expense_id: None, low_threshold: None },
                 ],
             }),
         )
@@ -1611,5 +1624,41 @@ mod tests {
         assert_eq!(bill.title, "City Water Corrected");
         assert!((bill.amount.unwrap() - 60.0).abs() < 1e-6);
         assert_eq!(bill.category.as_deref(), Some("Utilities"));
+
+        // Pantry low_threshold persisted & validated across create and edit.
+        let bad = add_pantry_item(
+            State(pool.clone()),
+            Json(PantryItem {
+                id: 0,
+                name: "Flour".into(),
+                quantity: 500.0,
+                unit: "g".into(),
+                expires_on: None,
+                expense_id: None,
+                low_threshold: Some(-5.0),
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
+
+        let ok = add_pantry_item(
+            State(pool.clone()),
+            Json(PantryItem {
+                id: 0,
+                name: "Flour".into(),
+                quantity: 500.0,
+                unit: "g".into(),
+                expires_on: None,
+                expense_id: None,
+                low_threshold: Some(250.0),
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(ok.status(), StatusCode::CREATED);
+        let items: Vec<PantryItem> = sqlx::query_as("SELECT * FROM pantry_items WHERE name = 'Flour'").fetch_all(&pool).await.unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].low_threshold, Some(250.0));
     }
 }

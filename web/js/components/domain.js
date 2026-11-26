@@ -3,7 +3,7 @@ import { addDays, fmtDay, iso, nextDate, today } from "../dates.js";
 import { create, delBtn, fail, formData, h, toast } from "../dom.js";
 import { isJobPending, submitAiJob } from "../jobs.js";
 import { CATEGORIES, CAT_COLOR, money, moneyShort } from "../money.js";
-import { render } from "../router.js";
+import { render, requestRecipeOpen } from "../router.js";
 import { showModal } from "../shortcuts.js";
 import { cal, moveItem } from "./calendar.js";
 
@@ -307,9 +307,31 @@ export function choreRow(c) {
   ];
 }
 
+export const mealTitleNode = (m) =>
+  m.recipe_id
+    ? [
+        h(
+          "a.grow.title.meal-link",
+          {
+            href: "#/recipes",
+            onclick: () => requestRecipeOpen(m.recipe_id),
+          },
+          m.title,
+        ),
+        h(
+          "a.tag.c-cyan",
+          {
+            href: "#/recipes",
+            onclick: () => requestRecipeOpen(m.recipe_id),
+          },
+          "Recipe →",
+        ),
+      ]
+    : h("span.grow.title", m.title);
+
 export const mealRow = (m) => [
   h("span.tag", { class: SLOT_COLOR[m.slot] || "c-muted" }, SLOT_LABEL[m.slot] || cap(m.slot)),
-  h("span.grow.title", m.title),
+  mealTitleNode(m),
   moveBtn("meal", m.id, m.title, m.date),
   delBtn(`/meals/${m.id}`, m.title),
 ];

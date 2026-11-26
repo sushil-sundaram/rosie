@@ -1,5 +1,6 @@
 import { h, list, section, segmented, stat, store } from "../dom.js";
 import { cents, fmtQty, money, moneyShort } from "../money.js";
+import { isPantryLow } from "../pantry_match.js";
 import { render } from "../router.js";
 import { cached } from "../store.js";
 import { cal, calendar, gridRange, inMonth, monthKey, moveItem, split, weekStrip } from "../components/calendar.js";
@@ -31,7 +32,7 @@ export async function homeView(root) {
 
   const mChores = chores.filter((c) => inMonth(c.due_date));
   const spend = expenses.filter((e) => inMonth(e.date)).reduce((s, e) => s + e.amount, 0);
-  const low = pantry.filter((p) => p.quantity <= 1);
+  const low = pantry.filter(isPantryLow);
 
   const ghosts = projected(chores);
   const chipsFor = (ds) => {

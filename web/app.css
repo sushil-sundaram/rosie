@@ -415,6 +415,23 @@ body.is-locked .fab, body.is-locked .bottom-nav { display: none !important; }
 .move-quick button { flex: 1 1 auto; }
 .budget-save { flex: none; }
 
+/* ---------- meals -> recipes -> cook mode ---------- */
+a.meal-link { color: var(--fg); text-decoration: none; }
+a.meal-link:hover { color: var(--cyan); text-decoration: underline; }
+.ing-status { font: 12px var(--mono); }
+.modal-dialog.cook-dialog { max-width: 720px; }
+.cook-body { display: grid; gap: 14px; }
+.cook-body h4 { font: 600 12px var(--mono); color: var(--muted); margin: 8px 0 2px; }
+.cook-list { display: grid; gap: 8px; }
+.cook-check, .cook-step {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+}
+.cook-step { font-size: 18px; line-height: 1.5; }
+.cook-step-num { font: 600 16px var(--mono); color: var(--purple); flex: none; padding-top: 2px; }
+.cook-check.done, .cook-step.done { opacity: .5; text-decoration: line-through; background: var(--bg-dark); }
+.cook-check input, .cook-step input { flex: none; margin-top: 3px; accent-color: var(--green); }
+
 /* ---------- modals & shortcuts ---------- */
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 50;

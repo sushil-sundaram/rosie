@@ -8,6 +8,18 @@ let renderLogin = () => {};
 let syncCtrl = { markFresh() {} };
 let consumeFocus = () => false;
 let renderGen = 0;
+let targetRecipeId = null;
+
+export function requestRecipeOpen(id) {
+  const num = Number(id);
+  targetRecipeId = Number.isInteger(num) && num > 0 ? num : null;
+}
+
+export function consumeRecipeOpen() {
+  const id = targetRecipeId;
+  targetRecipeId = null;
+  return id;
+}
 
 export function configureRouter({ viewMap, loginView, sync, consumeFocusSel }) {
   views = viewMap;
