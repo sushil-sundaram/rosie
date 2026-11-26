@@ -46,6 +46,7 @@ export async function render() {
   // Views pass optional sections (null) and grouped sections (arrays); flatten and drop empties.
   next.append = (...kids) => Element.prototype.append.apply(next, kids.flat(Infinity).filter((k) => k != null && k !== false));
   const y = window.scrollY;
+  const auth = getAuthState();
   const locked = auth.required && !auth.authenticated;
   document.body.classList.toggle("is-locked", locked);
   try {
