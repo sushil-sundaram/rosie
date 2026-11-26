@@ -23,6 +23,7 @@ const SHELL_ASSETS = [
   "/js/jobs.js",
   "/js/components/calendar.js",
   "/js/components/domain.js",
+  "/js/components/quick_add.js",
   "/js/views/home.js",
   "/js/views/pantry.js",
   "/js/views/meals.js",

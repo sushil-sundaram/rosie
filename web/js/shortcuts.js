@@ -47,7 +47,7 @@ export function closeTopModal() {
   return true;
 }
 
-export function showModal({ title, body, className = "", onClose }) {
+export function showModal({ title, body, className = "", backdropClass = "", onClose }) {
   const dismiss = () => {
     backdrop.remove();
     if (onClose) onClose();
@@ -63,7 +63,7 @@ export function showModal({ title, body, className = "", onClose }) {
     body,
   );
   const backdrop = h(
-    "div.modal-backdrop",
+    `div.modal-backdrop${backdropClass ? "." + backdropClass : ""}`,
     { "data-modal": "true", onclick: dismiss },
     dialog,
   );

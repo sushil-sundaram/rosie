@@ -3,6 +3,7 @@ import { consumeFocusSel } from "./js/components/calendar.js";
 import { setDomRender } from "./js/dom.js";
 import { notifyJobEvent } from "./js/jobs.js";
 import { configureRouter, render } from "./js/router.js";
+import { initQuickAdd } from "./js/components/quick_add.js";
 import { initShortcuts } from "./js/shortcuts.js";
 import { clearCache, invalidateAll, invalidateForPath, setStoreUpdateHook } from "./js/store.js";
 import { createSync } from "./js/sync.js";
@@ -58,6 +59,7 @@ initTheme(() => {
   if ((location.hash || "").includes("settings")) render();
 });
 initShortcuts();
+initQuickAdd();
 
 window.addEventListener("hashchange", () => {
   window.scrollTo(0, 0);
