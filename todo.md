@@ -9,7 +9,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
 - [x] **Fix broken SQL parameters in `PUT /api/pantry/{id}`** (`server/src/routes.rs:76-85`)
   - `?1` currently binds `payload.name` instead of `expiry` (parameter 4), and `WHERE id = ?` binds `expiry` instead of `id` (parameter 5).
   - Switch to explicit numbered parameters or clean positional bindings, and add an integration test for `PUT /api/pantry/{id}`.
-- [ ] **Guard `from[8..]` against malformed dates in `apply_chore_update`** (`server/src/routes.rs:307-316`)
+- [x] **Guard `from[8..]` against malformed dates in `apply_chore_update`** (`server/src/routes.rs:307-316`)
   - Ensure `valid_date(&from)` (or safe `.get(8..)`) is checked before slicing `from[8..]` so legacy/unexpected DB strings can never panic.
 - [ ] **Allow gallery/screenshot uploads on mobile** (`web/app.js:437`)
   - Remove `capture: "environment"` from the file `<input>` in `photoButton()` while keeping `accept="image/*"`, so iOS/Android users can choose *either* the camera or an existing photo/screenshot.

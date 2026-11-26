@@ -208,6 +208,14 @@ pub(crate) fn valid_date(d: &str) -> bool {
     y >= 1900 && (1..=days).contains(&day)
 }
 
+fn day_of_date(d: &str) -> i64 {
+    if valid_date(d) {
+        d.get(8..).and_then(|s| s.parse().ok()).unwrap_or(1)
+    } else {
+        1
+    }
+}
+
 fn bad_request(msg: &str) -> (StatusCode, Json<serde_json::Value>) {
     (StatusCode::BAD_REQUEST, Json(json!({ "error": msg })))
 }
@@ -289,7 +297,7 @@ async fn apply_chore_update(pool: &SqlitePool, id: i64, payload: &ChoreUpdate) -
     let new_due = payload.due_date.as_deref().filter(|d| valid_date(d));
     sqlx::query(
         "UPDATE chores SET repeat_day = CAST(substr(due_date, 9, 2) AS INTEGER) \
-         WHERE id = ? AND due_date IS NOT NULL AND (? OR repeat_day IS NULL)",
+         WHERE id = ? AND due_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND (? OR repeat_day IS NULL)",
     )
     .bind(id)
     .bind(new_due.is_some())
@@ -311,11 +319,11 @@ async fn apply_chore_update(pool: &SqlitePool, id: i64, payload: &ChoreUpdate) -
                     .due_date
                     .clone()
                     .filter(|d| valid_date(d))
-                    .or_else(|| chore.due_date.clone())
+                    .or_else(|| chore.due_date.clone().filter(|d| valid_date(d)))
                     .unwrap_or(today);
                 let anchor = match new_due {
-                    Some(d) => d[8..].parse().unwrap_or(1),
-                    None => chore.repeat_day.unwrap_or_else(|| from[8..].parse().unwrap_or(1)),
+                    Some(d) => day_of_date(d),
+                    None => chore.repeat_day.filter(|d| (1..=31).contains(d)).unwrap_or_else(|| day_of_date(&from)),
                 };
                 let next = next_due_date(&mut tx, &from, repeat, anchor).await?;
                 let res = sqlx::query(
@@ -346,7 +354,7 @@ async fn apply_chore_update(pool: &SqlitePool, id: i64, payload: &ChoreUpdate) -
                 // "Untouched" includes its date: a next occurrence someone rescheduled is kept.
                 let generated: Option<String> = match (chore.due_date.as_deref(), chore.repeat.as_deref().filter(|r| valid_repeat(r))) {
                     (Some(from), Some(repeat)) if valid_date(from) => {
-                        let anchor = chore.repeat_day.unwrap_or_else(|| from[8..].parse().unwrap_or(1));
+                        let anchor = chore.repeat_day.filter(|d| (1..=31).contains(d)).unwrap_or_else(|| day_of_date(from));
                         Some(next_due_date(&mut tx, from, repeat, anchor).await?)
                     }
                     _ => None,
@@ -1068,5 +1076,44 @@ mod tests {
         .await
         .into_response();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn apply_chore_update_handles_malformed_due_date_without_panicking() {
+        let pool = test_pool().await;
+        let id = sqlx::query(
+            "INSERT INTO chores (title, assigned_to, priority, status, points, due_date, repeat) \
+             VALUES ('Water plants', 'anyone', 'medium', 'todo', 1, 'bad', 'monthly')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_rowid();
+
+        let ok = apply_chore_update(
+            &pool,
+            id,
+            &ChoreUpdate {
+                status: Some("done".into()),
+                due_date: None,
+                repeat: None,
+            },
+        )
+        .await
+        .expect("should not fail or panic on malformed legacy due_date");
+        assert!(ok);
+
+        let next_id: Option<i64> = sqlx::query_scalar("SELECT next_id FROM chores WHERE id = ?")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let next: Chore = sqlx::query_as("SELECT * FROM chores WHERE id = ?")
+            .bind(next_id.expect("next occurrence created"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(valid_date(next.due_date.as_deref().unwrap_or("")));
+        assert!((1..=31).contains(&next.repeat_day.unwrap_or(0)));
     }
 }
