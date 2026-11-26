@@ -149,6 +149,118 @@ export function moveBtn(kind, id, label, currentDate) {
   }, "Move");
 }
 
+export function editBtn(label, onClick) {
+  return h("button.tag.linkish.c-purple", {
+    type: "button",
+    "aria-label": `Edit ${label}`,
+    onclick: (e) => {
+      e.stopPropagation();
+      onClick();
+    },
+  }, "Edit");
+}
+
+export function openChoreEditModal(c) {
+  const isBill = c.amount != null && c.amount > 0;
+  const form = h(
+    "form.stack",
+    {
+      onsubmit: async (ev) => {
+        ev.preventDefault();
+        const d = formData(ev.target);
+        const title = d.title.trim();
+        if (!title) return toast("Title is required", true);
+        const body = {
+          title,
+          assigned_to: d.assigned_to.trim() || "Anyone",
+          due_date: d.due_date || "",
+          repeat: d.repeat || "",
+        };
+        if (isBill) {
+          body.amount = Number(d.amount);
+          body.category = d.category;
+        } else {
+          body.priority = d.priority;
+          body.points = Number(d.points) || 1;
+          body.description = d.description.trim();
+        }
+        try {
+          await api(`/chores/${c.id}`, { method: "PATCH", body });
+          close();
+          toast(`Saved ${title}`);
+          render();
+        } catch (err) {
+          fail(err);
+        }
+      },
+    },
+    h("input", { name: "title", value: c.title, placeholder: isBill ? "Bill" : "Chore", required: true, "aria-label": "Title" }),
+    isBill
+      ? h(
+          "div.row-fields",
+          h("input", { name: "amount", type: "number", step: "0.01", min: "0.01", value: c.amount, required: true, "aria-label": "Amount" }),
+          h("select", { name: "category", "aria-label": "Category" },
+            CATEGORIES.map((cat) => h("option", { value: cat, selected: (c.category || "Utilities") === cat }, cat))),
+        )
+      : [
+          h(
+            "div.row-fields",
+            h("select", { name: "priority", "aria-label": "Priority" },
+              ["low", "medium", "high"].map((p) => h("option", { value: p, selected: c.priority === p }, cap(p)))),
+            h("input", { name: "points", type: "number", min: "0", max: "1000", value: c.points, "aria-label": "Points" }),
+          ),
+          h("textarea", { name: "description", placeholder: "Notes (optional)", "aria-label": "Notes", value: c.description || "" }),
+        ],
+    h(
+      "div.row-fields",
+      h("input", { name: "assigned_to", value: c.assigned_to, placeholder: isBill ? "Who pays" : "Who", "aria-label": "Assigned to" }),
+      h("input", { name: "due_date", type: "date", value: c.due_date || "", "aria-label": "Due date" }),
+      repeatSelect(isBill ? ["", "monthly", "yearly"] : ["", "weekly", "monthly", "yearly"], c.repeat || ""),
+    ),
+    h("button.primary", { type: "submit" }, "Save changes"),
+  );
+  const { close } = showModal({
+    title: isBill ? "Edit bill" : "Edit chore",
+    body: form,
+    backdropClass: "sheet-mobile",
+  });
+}
+
+export function openExpenseEditModal(e) {
+  const form = h(
+    "form.stack",
+    {
+      onsubmit: async (ev) => {
+        ev.preventDefault();
+        const d = formData(ev.target);
+        const title = d.title.trim();
+        if (!title) return toast("Title is required", true);
+        try {
+          await api(`/expenses/${e.id}`, {
+            method: "PUT",
+            body: { title, amount: Number(d.amount), category: d.category, date: d.date },
+          });
+          close();
+          toast(`Saved ${title}`);
+          render();
+        } catch (err) {
+          fail(err);
+        }
+      },
+    },
+    h("input", { name: "title", value: e.title, placeholder: "What", required: true, "aria-label": "Expense" }),
+    h(
+      "div.row-fields",
+      h("input", { name: "amount", type: "number", step: "any", min: "0.01", value: e.amount, required: true, "aria-label": "Amount" }),
+      h("select", { name: "category", "aria-label": "Category" },
+        CATEGORIES.map((cat) => h("option", { value: cat, selected: e.category === cat }, cat))),
+      h("input", { name: "date", type: "date", value: e.date, required: true, "aria-label": "Date" }),
+    ),
+    h("button.primary", { type: "submit" }, "Save changes"),
+  );
+  const { close } = showModal({ title: "Edit expense", body: form, backdropClass: "sheet-mobile" });
+}
+
 export const repeatSelect = (opts, dflt) => h("select.w-sm", { name: "repeat", "aria-label": "Repeat" },
   opts.map((r) => h("option", { value: r, selected: r === dflt }, REPEAT_LABEL[r])));
 
@@ -190,6 +302,7 @@ export function choreRow(c) {
       ? h("span.tag", { class: c.status === "done" ? "c-green" : "c-yellow" }, c.status === "done" ? `Paid · ${moneyShort(c.amount)}` : `Bill ${moneyShort(c.amount)}`)
       : priorityTag(c.priority),
     moveBtn("chore", c.id, c.title, c.due_date),
+    editBtn(c.title, () => openChoreEditModal(c)),
     delBtn(`/chores/${c.id}`, c.title),
   ];
 }
@@ -207,6 +320,7 @@ export const expenseRow = (e, linked = 0, fromBill = false) => [
   linked ? h("a.tag.c-green", { href: "#/pantry" }, `${linked} in pantry`) : null,
   h("span.tag", { class: CAT_COLOR[e.category] || "c-muted" }, e.category),
   h("span.num", money(e.amount)),
+  editBtn(e.title, () => openExpenseEditModal(e)),
   delBtn(`/expenses/${e.id}`, e.title),
 ];
 

@@ -6,8 +6,8 @@ import { render } from "../router.js";
 import { cached } from "../store.js";
 import { cal, calendar, gridRange, inMonth, monthKey, moveItem, split } from "../components/calendar.js";
 import {
-  billForm, chipLabel, expenseForm, expenseRow, ghostChip,
-  moveBtn, pantryReview, projected, repeatTag, setChore,
+  billForm, chipLabel, editBtn, expenseForm, expenseRow, ghostChip,
+  moveBtn, openChoreEditModal, pantryReview, projected, repeatTag, setChore,
 } from "../components/domain.js";
 
 let expenseAdd = "expense";
@@ -140,6 +140,7 @@ export async function expensesView(root) {
         repeatTag(c),
         h("span.num", money(c.amount)),
         moveBtn("chore", c.id, c.title, c.due_date),
+        editBtn(c.title, () => openChoreEditModal(c)),
         h("button", { type: "button", onclick: () => setChore(c, { status: "done" }) }, "Pay"),
         delBtn(`/chores/${c.id}`, c.title),
       ], "No bills due"),
@@ -150,6 +151,7 @@ export async function expensesView(root) {
       dayBills.length ? section("Bills due", list(dayBills, (c) => [
         h("span.grow.title", c.title), h("span.num", money(c.amount)),
         moveBtn("chore", c.id, c.title, c.due_date),
+        editBtn(c.title, () => openChoreEditModal(c)),
         h("button", { type: "button", onclick: () => setChore(c, { status: "done" }) }, "Pay"),
       ])) : null,
       h("h2", "Add"),

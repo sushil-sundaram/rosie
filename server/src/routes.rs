@@ -29,7 +29,7 @@ pub fn app_router(pool: SqlitePool) -> Router {
         .route("/chores", get(get_chores).post(add_chore))
         .route("/chores/{id}", patch(update_chore).delete(delete_chore))
         .route("/expenses", get(get_expenses).post(add_expense))
-        .route("/expenses/{id}", delete(delete_expense))
+        .route("/expenses/{id}", axum::routing::put(update_expense).delete(delete_expense))
         .route("/expenses/scan-receipt", post(scan_receipt).layer(photo_limit()))
         .route("/settings", get(get_settings).put(put_settings))
         .route("/budgets", get(get_budgets))
@@ -333,6 +333,30 @@ async fn update_chore(
             return (StatusCode::BAD_REQUEST, Json(json!({"error": "repeat must be weekly, monthly or yearly"})));
         }
     }
+    if payload.title.as_deref().is_some_and(|t| !valid_text(t)) {
+        return bad_request("a chore needs a title");
+    }
+    if payload.assigned_to.as_deref().is_some_and(|a| a.trim().len() > 100) {
+        return bad_request("assigned_to must be 100 characters or less");
+    }
+    if payload.priority.as_deref().is_some_and(|p| !matches!(p, "low" | "medium" | "high")) {
+        return bad_request("priority must be low, medium or high");
+    }
+    if payload.points.is_some_and(|pts| !(0..=1000).contains(&pts)) {
+        return bad_request("points must be between 0 and 1000");
+    }
+    if payload.amount.is_some_and(|a| !valid_amount(a)) {
+        return bad_request("amount must be 0 or more");
+    }
+    if payload
+        .category
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+        .is_some_and(|c| canonical_category(c).is_none())
+    {
+        return bad_request("invalid category");
+    }
     match apply_chore_update(&pool, id, &payload).await {
         Ok(true) => (StatusCode::OK, Json(json!({"status": "updated"}))),
         Ok(false) => (StatusCode::NOT_FOUND, Json(json!({"error": "Not found"}))),
@@ -343,8 +367,8 @@ async fn update_chore(
     }
 }
 
-/// Updates status/due date. For bills, marking done logs an expense and
-/// moving it out of done removes that expense, so a bill is counted once.
+/// Updates status, due date, or editable fields. For bills, marking done logs
+/// an expense, editing syncs it, and moving out of done removes it.
 async fn apply_chore_update(pool: &SqlitePool, id: i64, payload: &ChoreUpdate) -> Result<bool, sqlx::Error> {
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     let Some(chore) = sqlx::query_as::<_, Chore>("SELECT * FROM chores WHERE id = ?")
@@ -355,11 +379,52 @@ async fn apply_chore_update(pool: &SqlitePool, id: i64, payload: &ChoreUpdate) -
         return Ok(false);
     };
 
+    let title = payload
+        .title
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_string)
+        .unwrap_or_else(|| chore.title.clone());
+    let description = match &payload.description {
+        Some(d) if d.trim().is_empty() => None,
+        Some(d) => Some(d.chars().take(2000).collect()),
+        None => chore.description.clone(),
+    };
+    let assigned_to = match payload.assigned_to.as_deref().map(str::trim) {
+        Some("") => "Anyone".to_string(),
+        Some(a) => a.to_string(),
+        None => chore.assigned_to.clone(),
+    };
+    let priority = payload.priority.clone().unwrap_or_else(|| chore.priority.clone());
+    let points = payload.points.unwrap_or(chore.points);
+    let amount = match payload.amount {
+        Some(a) if a > 0.0 => Some(a),
+        Some(_) => None,
+        None => chore.amount,
+    };
+    let category = if amount.is_some() {
+        match payload.category.as_deref().map(str::trim) {
+            Some("") => Some("Utilities".to_string()),
+            Some(c) => Some(canonical_category(c).unwrap_or("Utilities").to_string()),
+            None => Some(chore.category.clone().unwrap_or_else(|| "Utilities".to_string())),
+        }
+    } else {
+        None
+    };
+
     sqlx::query(
-        "UPDATE chores SET status = COALESCE(?, status), \
+        "UPDATE chores SET title = ?, description = ?, assigned_to = ?, priority = ?, points = ?, amount = ?, category = ?, \
+         status = COALESCE(?, status), \
          due_date = CASE WHEN ? IS NULL THEN due_date WHEN ? = '' THEN NULL ELSE ? END \
          WHERE id = ?",
     )
+    .bind(&title)
+    .bind(&description)
+    .bind(&assigned_to)
+    .bind(&priority)
+    .bind(points)
+    .bind(amount)
+    .bind(&category)
     .bind(&payload.status)
     .bind(&payload.due_date)
     .bind(&payload.due_date)
@@ -414,14 +479,14 @@ async fn apply_chore_update(pool: &SqlitePool, id: i64, payload: &ChoreUpdate) -
                     "INSERT INTO chores (title, description, assigned_to, priority, status, points, due_date, amount, category, repeat, repeat_day) \
                      VALUES (?, ?, ?, ?, 'todo', ?, ?, ?, ?, ?, ?)",
                 )
-                .bind(&chore.title)
-                .bind(&chore.description)
-                .bind(&chore.assigned_to)
-                .bind(&chore.priority)
-                .bind(chore.points)
+                .bind(&title)
+                .bind(&description)
+                .bind(&assigned_to)
+                .bind(&priority)
+                .bind(points)
                 .bind(&next)
-                .bind(chore.amount)
-                .bind(&chore.category)
+                .bind(amount)
+                .bind(&category)
                 .bind(repeat)
                 .bind(anchor)
                 .execute(&mut *tx)
@@ -464,25 +529,37 @@ async fn apply_chore_update(pool: &SqlitePool, id: i64, payload: &ChoreUpdate) -
         _ => {}
     }
 
-    if let (Some(amount), Some(status)) = (chore.amount, payload.status.as_deref()) {
-        if status == "done" && chore.expense_id.is_none() {
-            let res = sqlx::query("INSERT INTO expenses (title, amount, category, date) VALUES (?, ?, ?, date('now', 'localtime'))")
-                .bind(&chore.title)
-                .bind(amount)
-                .bind(chore.category.as_deref().unwrap_or("Utilities"))
-                .execute(&mut *tx)
-                .await?;
-            sqlx::query("UPDATE chores SET expense_id = ? WHERE id = ?")
-                .bind(res.last_insert_rowid())
-                .bind(id)
-                .execute(&mut *tx)
-                .await?;
-        } else if status != "done" {
+    let status_now = payload.status.as_deref().unwrap_or(&chore.status);
+    if let Some(amt) = amount {
+        if status_now == "done" {
             if let Some(eid) = chore.expense_id {
-                sqlx::query("DELETE FROM expenses WHERE id = ?").bind(eid).execute(&mut *tx).await?;
-                sqlx::query("UPDATE chores SET expense_id = NULL WHERE id = ?").bind(id).execute(&mut *tx).await?;
+                sqlx::query("UPDATE expenses SET title = ?, amount = ?, category = ? WHERE id = ?")
+                    .bind(&title)
+                    .bind(amt)
+                    .bind(category.as_deref().unwrap_or("Utilities"))
+                    .bind(eid)
+                    .execute(&mut *tx)
+                    .await?;
+            } else {
+                let res = sqlx::query("INSERT INTO expenses (title, amount, category, date) VALUES (?, ?, ?, date('now', 'localtime'))")
+                    .bind(&title)
+                    .bind(amt)
+                    .bind(category.as_deref().unwrap_or("Utilities"))
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query("UPDATE chores SET expense_id = ? WHERE id = ?")
+                    .bind(res.last_insert_rowid())
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
             }
+        } else if let Some(eid) = chore.expense_id {
+            sqlx::query("DELETE FROM expenses WHERE id = ?").bind(eid).execute(&mut *tx).await?;
+            sqlx::query("UPDATE chores SET expense_id = NULL WHERE id = ?").bind(id).execute(&mut *tx).await?;
         }
+    } else if let Some(eid) = chore.expense_id {
+        sqlx::query("DELETE FROM expenses WHERE id = ?").bind(eid).execute(&mut *tx).await?;
+        sqlx::query("UPDATE chores SET expense_id = NULL WHERE id = ?").bind(id).execute(&mut *tx).await?;
     }
 
     tx.commit().await?;
@@ -831,6 +908,60 @@ async fn add_expense(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Failed to insert expense"})),
         ),
+    }
+}
+
+async fn update_expense(
+    State(pool): State<SqlitePool>,
+    Path(id): Path<i64>,
+    Json(payload): Json<Expense>,
+) -> impl IntoResponse {
+    if !valid_text(&payload.title) {
+        return bad_request("an expense needs a title");
+    }
+    if !valid_amount(payload.amount) || payload.amount == 0.0 {
+        return bad_request("amount must be more than 0");
+    }
+    if !valid_date(&payload.date) {
+        return bad_request("date must be a real date (YYYY-MM-DD)");
+    }
+    let Some(category) = canonical_category(&payload.category) else {
+        return bad_request("invalid expense category");
+    };
+    let title = payload.title.trim();
+    let result: Result<u64, sqlx::Error> = async {
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+        let changed = sqlx::query(
+            "UPDATE expenses SET title = ?, amount = ?, category = ?, date = ? WHERE id = ?",
+        )
+        .bind(title)
+        .bind(payload.amount)
+        .bind(category)
+        .bind(&payload.date)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if changed > 0 {
+            sqlx::query("UPDATE chores SET title = ?, amount = ?, category = ? WHERE expense_id = ?")
+                .bind(title)
+                .bind(payload.amount)
+                .bind(category)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(changed)
+    }
+    .await;
+    match result {
+        Ok(0) => (StatusCode::NOT_FOUND, Json(json!({"error": "Already removed or changed by someone else"}))),
+        Ok(_) => (StatusCode::OK, Json(json!({"status": "updated"}))),
+        Err(e) => {
+            tracing::error!("update expense {id}: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to update expense"})))
+        }
     }
 }
 
@@ -1260,8 +1391,7 @@ mod tests {
             id,
             &ChoreUpdate {
                 status: Some("done".into()),
-                due_date: None,
-                repeat: None,
+                ..Default::default()
             },
         )
         .await
@@ -1429,5 +1559,57 @@ mod tests {
             .await
             .into_response();
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn edit_chore_bill_and_expense_sync() {
+        let pool = test_pool().await;
+
+        let bill_id = sqlx::query(
+            "INSERT INTO chores (title, assigned_to, priority, status, points, due_date, amount, category) \
+             VALUES ('Water', 'Sam', 'high', 'todo', 1, '2026-11-10', 40.0, 'Utilities')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_rowid();
+
+        // Mark paid so an expense is created.
+        assert!(apply_chore_update(&pool, bill_id, &ChoreUpdate { status: Some("done".into()), ..Default::default() }).await.unwrap());
+        let expense_id: Option<i64> = sqlx::query_scalar("SELECT expense_id FROM chores WHERE id = ?").bind(bill_id).fetch_one(&pool).await.unwrap();
+        let expense_id = expense_id.expect("paid bill creates expense");
+
+        // Editing bill updates linked expense.
+        let res = update_chore(
+            State(pool.clone()),
+            Path(bill_id),
+            Json(ChoreUpdate {
+                title: Some("City Water".into()),
+                amount: Some(55.5),
+                category: Some("household".into()),
+                ..Default::default()
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(res.status(), StatusCode::OK);
+        let exp: Expense = sqlx::query_as("SELECT * FROM expenses WHERE id = ?").bind(expense_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(exp.title, "City Water");
+        assert!((exp.amount - 55.5).abs() < 1e-6);
+        assert_eq!(exp.category, "Household");
+
+        // Editing the expense via PUT /api/expenses/{id} syncs back to the bill.
+        let res = update_expense(
+            State(pool.clone()),
+            Path(expense_id),
+            Json(Expense { id: 0, title: "City Water Corrected".into(), amount: 60.0, category: "utilities".into(), date: "2026-11-12".into() }),
+        )
+        .await
+        .into_response();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bill: Chore = sqlx::query_as("SELECT * FROM chores WHERE id = ?").bind(bill_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(bill.title, "City Water Corrected");
+        assert!((bill.amount.unwrap() - 60.0).abs() < 1e-6);
+        assert_eq!(bill.category.as_deref(), Some("Utilities"));
     }
 }

@@ -105,13 +105,22 @@ pub struct Meal {
     pub recipe_id: Option<i64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
 pub struct ChoreUpdate {
     pub status: Option<String>,
     /// YYYY-MM-DD to schedule, "" to unschedule, absent to leave unchanged.
     pub due_date: Option<String>,
     /// "weekly" | "monthly" | "yearly", or "" to stop repeating.
     pub repeat: Option<String>,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub assigned_to: Option<String>,
+    pub priority: Option<String>,
+    pub points: Option<i64>,
+    /// > 0 sets/updates bill amount; 0 clears bill status.
+    pub amount: Option<f64>,
+    pub category: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

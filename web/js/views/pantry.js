@@ -5,7 +5,8 @@ import { fmtQty, money, moneyShort } from "../money.js";
 import { render } from "../router.js";
 import { cached } from "../store.js";
 import { cal } from "../components/calendar.js";
-import { asPending, pantryReview, photoButton, setPendingItems } from "../components/domain.js";
+import { asPending, editBtn, pantryReview, photoButton, setPendingItems } from "../components/domain.js";
+import { showModal } from "../shortcuts.js";
 
 export async function pantryView(root) {
   const [items, expenses] = await Promise.all([
@@ -22,6 +23,45 @@ export async function pantryView(root) {
     } catch (err) {
       fail(err);
     }
+  };
+
+  const openEditModal = (it) => {
+    const form = h(
+      "form.stack",
+      {
+        onsubmit: async (e) => {
+          e.preventDefault();
+          const d = formData(e.target);
+          const name = d.name.trim();
+          if (!name) return toast("Item name is required", true);
+          try {
+            await api(`/pantry/${it.id}`, {
+              method: "PUT",
+              body: {
+                name,
+                quantity: Number(d.quantity) || 0,
+                unit: d.unit.trim() || "pcs",
+                expires_on: d.expires_on || "",
+              },
+            });
+            close();
+            toast(`Saved ${name}`);
+            render();
+          } catch (err) {
+            fail(err);
+          }
+        },
+      },
+      h("input", { name: "name", value: it.name, placeholder: "Item", required: true, "aria-label": "Item" }),
+      h(
+        "div.row-fields",
+        h("input", { name: "quantity", type: "number", step: "any", min: "0", value: it.quantity, required: true, "aria-label": "Quantity" }),
+        h("input", { name: "unit", value: it.unit, placeholder: "Unit", "aria-label": "Unit" }),
+        h("input", { name: "expires_on", type: "date", value: it.expires_on || "", "aria-label": "Expiry date" }),
+      ),
+      h("button.primary", { type: "submit" }, "Save changes"),
+    );
+    const { close } = showModal({ title: "Edit pantry item", body: form, backdropClass: "sheet-mobile" });
   };
 
   const expiryTag = (p) => {
@@ -99,6 +139,7 @@ export async function pantryView(root) {
       h("button.icon", { title: "Decrease", "aria-label": `Decrease ${it.name}`, onclick: () => adjust(it, -1), disabled: it.quantity <= 0 }, "−"),
       h("span.num", { class: it.quantity <= 1 ? "c-red" : "c-green" }, `${fmtQty(it.quantity)} ${it.unit}`),
       h("button.icon", { title: "Increase", "aria-label": `Increase ${it.name}`, onclick: () => adjust(it, 1) }, "+"),
+      editBtn(it.name, () => openEditModal(it)),
       delBtn(`/pantry/${it.id}`, it.name),
     ], "Your pantry is empty — add items, or snap a photo of your groceries"),
   ));
