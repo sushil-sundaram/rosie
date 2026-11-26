@@ -11,7 +11,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
   - Switch to explicit numbered parameters or clean positional bindings, and add an integration test for `PUT /api/pantry/{id}`.
 - [x] **Guard `from[8..]` against malformed dates in `apply_chore_update`** (`server/src/routes.rs:307-316`)
   - Ensure `valid_date(&from)` (or safe `.get(8..)`) is checked before slicing `from[8..]` so legacy/unexpected DB strings can never panic.
-- [ ] **Allow gallery/screenshot uploads on mobile** (`web/app.js:437`)
+- [x] **Allow gallery/screenshot uploads on mobile** (`web/app.js:437`)
   - Remove `capture: "environment"` from the file `<input>` in `photoButton()` while keeping `accept="image/*"`, so iOS/Android users can choose *either* the camera or an existing photo/screenshot.
 - [ ] **Validate `category` and numeric bounds consistently on the backend** (`server/src/routes.rs`)
   - Constrain `put_budget` (`L456-480`), `add_expense` (`L688-721`), and `add_chore` (`L620-673`) categories (trim + validate against allowed categories or normalized set).
