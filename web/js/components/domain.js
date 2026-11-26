@@ -2,7 +2,7 @@ import { api } from "../api.js";
 import { addDays, fmtDay, iso, nextDate, today } from "../dates.js";
 import { create, delBtn, fail, formData, h, store, toast } from "../dom.js";
 import { isJobPending, submitAiJob } from "../jobs.js";
-import { CATEGORIES, CAT_COLOR, money, moneyShort } from "../money.js";
+import { CATEGORIES, CAT_COLOR, CHORE_CATEGORIES, CHORE_CAT_COLOR, money, moneyShort } from "../money.js";
 import { render, requestRecipeOpen } from "../router.js";
 import { showModal } from "../shortcuts.js";
 import { cal, moveItem } from "./calendar.js";
@@ -22,7 +22,7 @@ export const bySlot = (a, b) => SLOTS.indexOf(a.slot) - SLOTS.indexOf(b.slot);
 let knownMembers = store.get("members", []);
 
 export function syncMembers(chores = []) {
-  const set = new Set();
+  const set = new Set(store.get("members", []));
   for (const c of chores) {
     const m = (c.assigned_to || "").trim();
     if (m && m.toLowerCase() !== "anyone") set.add(m);
@@ -30,39 +30,71 @@ export function syncMembers(chores = []) {
   const next = [...set].sort((a, b) => a.localeCompare(b));
   knownMembers = next;
   store.set("members", next);
-  let dl = document.getElementById("rosie-members");
-  if (!dl) {
-    dl = h("datalist", { id: "rosie-members" });
-    document.body.append(dl);
-  }
-  dl.replaceChildren(
-    h("option", { value: "Anyone" }),
-    next.map((m) => h("option", { value: m })),
-  );
 }
 
-export function memberChips(input) {
-  const names = knownMembers.length ? ["Anyone", ...knownMembers] : [];
-  if (!names.length) return null;
-  return h(
-    "div.member-chips",
-    { role: "group", "aria-label": "Household members" },
-    h("span.meta", "Assign:"),
-    names.map((m) =>
-      h(
-        "button.tag.linkish.c-purple",
-        {
-          type: "button",
-          onclick: () => {
-            input.value = m;
-            input.focus();
-          },
-        },
-        m,
-      ),
-    ),
-  );
+export function rememberMember(name) {
+  const m = String(name || "").trim();
+  if (!m || m.toLowerCase() === "anyone") return;
+  if (!knownMembers.includes(m)) {
+    knownMembers = [...knownMembers, m].sort((a, b) => a.localeCompare(b));
+    store.set("members", knownMembers);
+  }
 }
+
+export function whoField(currentVal = "Anyone", ariaLabel = "Assigned to", extraClass = "") {
+  const val = (currentVal || "").trim() || "Anyone";
+  const options = ["Anyone", ...knownMembers.filter((m) => m.toLowerCase() !== "anyone")];
+  if (val.toLowerCase() !== "anyone" && !options.includes(val)) options.push(val);
+  const wrap = h("span.who-wrap", { class: extraClass || null });
+
+  const showSelect = (selectedVal = val) => {
+    const sel = h(
+      "select",
+      {
+        name: "assigned_to",
+        "aria-label": ariaLabel,
+        onchange: () => {
+          if (sel.value === "__new__") showCustomInput();
+        },
+      },
+      options.map((m) => h("option", { value: m, selected: m === selectedVal }, m)),
+      h("option", { value: "__new__" }, "+ Add person…"),
+    );
+    wrap.replaceChildren(sel);
+  };
+
+  const showCustomInput = () => {
+    const inp = h("input", {
+      name: "assigned_to",
+      placeholder: "Person name",
+      required: true,
+      autocomplete: "off",
+      "aria-label": ariaLabel,
+    });
+    const back = h("button.icon", {
+      type: "button",
+      title: "Choose from list",
+      "aria-label": "Choose from existing household members",
+      onclick: () => showSelect("Anyone"),
+    }, "×");
+    wrap.replaceChildren(inp, back);
+    inp.focus();
+  };
+
+  showSelect(val);
+  return wrap;
+}
+
+export const choreCategorySelect = (dflt = "", extraClass = "w-sm") =>
+  h(
+    "select",
+    { name: "category", class: extraClass || null, "aria-label": "Category" },
+    h("option", { value: "", selected: !dflt }, "Category…"),
+    CHORE_CATEGORIES.map((c) => h("option", { value: c, selected: c === dflt }, c)),
+  );
+
+export const choreCategoryTag = (cat) =>
+  cat ? h("span.tag", { class: CHORE_CAT_COLOR[cat] || "c-muted" }, cat) : null;
 
 export async function setChore(c, body, isUndo = false) {
   try {
@@ -218,7 +250,6 @@ export function editBtn(label, onClick) {
 
 export function openChoreEditModal(c) {
   const isBill = c.amount != null && c.amount > 0;
-  const whoInput = h("input", { name: "assigned_to", list: "rosie-members", value: c.assigned_to, placeholder: isBill ? "Who pays" : "Who", "aria-label": "Assigned to" });
   const form = h(
     "form.stack",
     {
@@ -227,9 +258,11 @@ export function openChoreEditModal(c) {
         const d = formData(ev.target);
         const title = d.title.trim();
         if (!title) return toast("Title is required", true);
+        const assigned_to = (d.assigned_to || "").trim() || "Anyone";
+        rememberMember(assigned_to);
         const body = {
           title,
-          assigned_to: d.assigned_to.trim() || "Anyone",
+          assigned_to,
           due_date: d.due_date || "",
           repeat: d.repeat || "",
         };
@@ -238,7 +271,7 @@ export function openChoreEditModal(c) {
           body.category = d.category;
         } else {
           body.priority = d.priority;
-          body.points = Number(d.points) || 1;
+          body.category = d.category || "";
           body.description = d.description.trim();
         }
         try {
@@ -262,19 +295,18 @@ export function openChoreEditModal(c) {
       : [
           h(
             "div.row-fields",
+            choreCategorySelect(c.category || "", ""),
             h("select", { name: "priority", "aria-label": "Priority" },
               ["low", "medium", "high"].map((p) => h("option", { value: p, selected: c.priority === p }, cap(p)))),
-            h("input", { name: "points", type: "number", min: "0", max: "1000", value: c.points, "aria-label": "Points" }),
           ),
           h("textarea", { name: "description", placeholder: "Notes (optional)", "aria-label": "Notes", value: c.description || "" }),
         ],
     h(
       "div.row-fields",
-      whoInput,
+      whoField(c.assigned_to, isBill ? "Who pays" : "Assigned to", ""),
       h("input", { name: "due_date", type: "date", value: c.due_date || "", "aria-label": "Due date" }),
       repeatSelect(isBill ? ["", "monthly", "yearly"] : ["", "weekly", "monthly", "yearly"], c.repeat || ""),
     ),
-    memberChips(whoInput),
     h("button.primary", { type: "submit" }, "Save changes"),
   );
   const { close } = showModal({
@@ -323,14 +355,15 @@ export const repeatSelect = (opts, dflt) => h("select.w-sm", { name: "repeat", "
   opts.map((r) => h("option", { value: r, selected: r === dflt }, REPEAT_LABEL[r])));
 
 export function billForm(date) {
-  const whoInput = h("input.w-sm", { name: "assigned_to", list: "rosie-members", placeholder: "Who pays", "aria-label": "Who pays" });
-  const form = h("form.row", {
+  return h("form.row", {
     onsubmit: (e) => {
       e.preventDefault();
       const d = formData(e.target);
+      const assigned_to = (d.assigned_to || "").trim() || "Anyone";
+      rememberMember(assigned_to);
       create("/chores", {
-        title: d.title.trim(), description: null, assigned_to: d.assigned_to.trim() || "Anyone",
-        priority: "high", status: "todo", points: 1, due_date: date,
+        title: d.title.trim(), description: null, assigned_to,
+        priority: "high", status: "todo", due_date: date,
         amount: Number(d.amount), category: d.category, repeat: d.repeat || null,
       }, `bill ${d.title}`);
     },
@@ -338,11 +371,10 @@ export function billForm(date) {
     h("input", { name: "title", placeholder: "Bill (e.g. Electricity)", required: true, autocomplete: "off", "aria-label": "Bill" }),
     h("input.w-sm", { name: "amount", type: "number", step: "0.01", min: "0.01", placeholder: "0.00", required: true, "aria-label": "Amount" }),
     h("select.w-sm", { name: "category", "aria-label": "Category" }, CATEGORIES.map((c) => h("option", { value: c, selected: c === "Utilities" }, c))),
-    whoInput,
+    whoField("Anyone", "Who pays", "w-sm"),
     repeatSelect(["", "monthly", "yearly"], "monthly"),
     h("button.primary", { type: "submit" }, "Add bill"),
   );
-  return h("div", form, memberChips(whoInput));
 }
 
 export function payBillBtn(c) {
@@ -372,8 +404,9 @@ export function choreRow(c) {
         }, STATUS_GLYPH[c.status]),
     h("span.grow",
       h("span.title", { class: c.status === "done" ? "strike" : null }, c.title),
-      h("span.meta", ` ${c.assigned_to}${isBill ? "" : ` · ${c.points} pt${c.points === 1 ? "" : "s"}`}`)),
+      h("span.meta", ` ${c.assigned_to}`)),
     repeatTag(c),
+    isBill ? null : choreCategoryTag(c.category),
     isBill
       ? h("span.tag", { class: c.status === "done" ? "c-green" : "c-yellow" }, c.status === "done" ? `Paid · ${moneyShort(c.amount)}` : `Bill ${moneyShort(c.amount)}`)
       : priorityTag(c.priority),
@@ -423,26 +456,26 @@ export const expenseRow = (e, linked = 0, fromBill = false) => [
 ];
 
 export function choreForm(date) {
-  const whoInput = h("input.w-sm", { name: "assigned_to", list: "rosie-members", placeholder: "Who", "aria-label": "Assigned to" });
-  const form = h("form.row", {
+  return h("form.row", {
     onsubmit: (e) => {
       e.preventDefault();
       const d = formData(e.target);
+      const assigned_to = (d.assigned_to || "").trim() || "Anyone";
+      rememberMember(assigned_to);
       create("/chores", {
-        title: d.title.trim(), description: null, assigned_to: d.assigned_to.trim() || "Anyone",
-        priority: d.priority, status: "todo", points: Number(d.points) || 1, due_date: date || null,
+        title: d.title.trim(), description: null, assigned_to,
+        priority: d.priority, status: "todo", category: d.category || null, due_date: date || null,
         repeat: d.repeat || null,
       }, d.title);
     },
   },
     h("input", { name: "title", placeholder: "Chore", required: true, autocomplete: "off", "aria-label": "Chore" }),
-    whoInput,
+    whoField("Anyone", "Assigned to", "w-sm"),
+    choreCategorySelect(),
     h("select.w-sm", { name: "priority", "aria-label": "Priority" }, ["low", "medium", "high"].map((p) => h("option", { value: p, selected: p === "medium" }, cap(p)))),
-    h("input.w-xs", { name: "points", type: "number", min: "1", value: "1", title: "Points", "aria-label": "Points" }),
     repeatSelect(["", "weekly", "monthly"], ""),
     h("button.primary", { type: "submit" }, "Add"),
   );
-  return h("div", form, memberChips(whoInput));
 }
 
 export function mealForm(date, recipes = []) {

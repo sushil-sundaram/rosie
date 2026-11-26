@@ -62,6 +62,7 @@ pub struct Chore {
     pub assigned_to: String,
     pub priority: String,
     pub status: String,
+    #[serde(default)]
     pub points: i64,
     #[serde(default)]
     pub due_date: Option<String>,

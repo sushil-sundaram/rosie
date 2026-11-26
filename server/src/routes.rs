@@ -318,6 +318,34 @@ fn canonical_category(raw: &str) -> Option<&'static str> {
     CATEGORIES.iter().copied().find(|c| c.eq_ignore_ascii_case(t))
 }
 
+const CHORE_CATEGORIES: &[&str] = &[
+    "Cleaning",
+    "Kitchen",
+    "Laundry",
+    "Errands",
+    "Maintenance",
+    "Pets",
+    "Garden",
+    "Other",
+];
+
+fn canonical_chore_category(raw: &str) -> Option<&'static str> {
+    let t = raw.trim();
+    CHORE_CATEGORIES.iter().copied().find(|c| c.eq_ignore_ascii_case(t))
+}
+
+#[derive(Debug)]
+enum ChoreUpdateError {
+    BadRequest(&'static str),
+    Db(sqlx::Error),
+}
+
+impl From<sqlx::Error> for ChoreUpdateError {
+    fn from(e: sqlx::Error) -> Self {
+        Self::Db(e)
+    }
+}
+
 async fn update_chore(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
@@ -358,14 +386,15 @@ async fn update_chore(
         .as_deref()
         .map(str::trim)
         .filter(|c| !c.is_empty())
-        .is_some_and(|c| canonical_category(c).is_none())
+        .is_some_and(|c| canonical_category(c).is_none() && canonical_chore_category(c).is_none())
     {
         return bad_request("invalid category");
     }
     match apply_chore_update(&pool, id, &payload).await {
         Ok(true) => (StatusCode::OK, Json(json!({"status": "updated"}))),
         Ok(false) => (StatusCode::NOT_FOUND, Json(json!({"error": "Not found"}))),
-        Err(e) => {
+        Err(ChoreUpdateError::BadRequest(msg)) => bad_request(msg),
+        Err(ChoreUpdateError::Db(e)) => {
             tracing::error!("update chore {id} failed: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to update chore"})))
         }
@@ -374,7 +403,7 @@ async fn update_chore(
 
 /// Updates status, due date, or editable fields. For bills, marking done logs
 /// an expense, editing syncs it, and moving out of done removes it.
-async fn apply_chore_update(pool: &SqlitePool, id: i64, payload: &ChoreUpdate) -> Result<bool, sqlx::Error> {
+async fn apply_chore_update(pool: &SqlitePool, id: i64, payload: &ChoreUpdate) -> Result<bool, ChoreUpdateError> {
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     let Some(chore) = sqlx::query_as::<_, Chore>("SELECT * FROM chores WHERE id = ?")
         .bind(id)
@@ -410,11 +439,23 @@ async fn apply_chore_update(pool: &SqlitePool, id: i64, payload: &ChoreUpdate) -
     let category = if amount.is_some() {
         match payload.category.as_deref().map(str::trim) {
             Some("") => Some("Utilities".to_string()),
-            Some(c) => Some(canonical_category(c).unwrap_or("Utilities").to_string()),
-            None => Some(chore.category.clone().unwrap_or_else(|| "Utilities".to_string())),
+            Some(c) => Some(
+                canonical_category(c)
+                    .ok_or(ChoreUpdateError::BadRequest("invalid bill category"))?
+                    .to_string(),
+            ),
+            None => Some(chore.category.clone().filter(|c| canonical_category(c).is_some()).unwrap_or_else(|| "Utilities".to_string())),
         }
     } else {
-        None
+        match payload.category.as_deref().map(str::trim) {
+            Some("") => None,
+            Some(c) => Some(
+                canonical_chore_category(c)
+                    .ok_or(ChoreUpdateError::BadRequest("invalid chore category"))?
+                    .to_string(),
+            ),
+            None => chore.category.clone().and_then(|c| canonical_chore_category(&c).map(str::to_string)),
+        }
     };
 
     sqlx::query(
@@ -824,14 +865,18 @@ async fn add_chore(
     if payload.amount.is_some_and(|a| !valid_amount(a)) {
         return bad_request("amount must be 0 or more");
     }
+    let is_bill = payload.amount.is_some_and(|a| a > 0.0);
     let category = match payload.category.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
-        Some(c) => match canonical_category(c) {
-            Some(canon) => Some(canon),
-            None => return bad_request("invalid category"),
-        },
-        None => None,
+        Some(c) => {
+            let canon = if is_bill { canonical_category(c) } else { canonical_chore_category(c) };
+            match canon {
+                Some(v) => Some(v),
+                None => return bad_request("invalid category"),
+            }
+        }
+        None => is_bill.then_some("Utilities"),
     };
-    if payload.amount.is_some_and(|a| a > 0.0) && payload.status == "done" {
+    if is_bill && payload.status == "done" {
         // Paying is what records the expense; a bill can't start out paid.
         return bad_request("add the bill first, then mark it paid");
     }
@@ -846,7 +891,7 @@ async fn add_chore(
     .bind(payload.points)
     .bind(payload.due_date.as_deref().filter(|d| valid_date(d)))
     .bind(payload.amount.filter(|a| *a > 0.0))
-    .bind(payload.amount.filter(|a| *a > 0.0).map(|_| category.unwrap_or("Utilities")))
+    .bind(category)
     .bind(payload.repeat.as_deref().filter(|r| valid_repeat(r)))
     .bind(payload.due_date.as_deref().filter(|d| valid_date(d)).map(day_of_date))
     .execute(&pool)
@@ -1732,5 +1777,28 @@ mod tests {
         assert!(apply_chore_update(&pool, bid, &ChoreUpdate { status: Some("todo".into()), ..Default::default() }).await.unwrap());
         let kept: Option<String> = sqlx::query_scalar("SELECT due_date FROM chores WHERE id = ?").bind(next_id2).fetch_optional(&pool).await.unwrap();
         assert_eq!(kept.as_deref(), Some("2026-03-01"));
+
+        // Chores can omit points in JSON and store/update canonical chore categories.
+        let req = axum::http::Request::builder()
+            .method(axum::http::Method::POST)
+            .uri("/chores")
+            .header(axum::http::header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"title":"Mop floor","assigned_to":"Alex","priority":"medium","status":"todo","category":"cleaning"}"#))
+            .unwrap();
+        std::future::poll_fn(|cx| Service::<axum::http::Request<Body>>::poll_ready(&mut app, cx)).await.unwrap();
+        let res = Service::call(&mut app, req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::CREATED);
+        let chore_cat: Option<String> = sqlx::query_scalar("SELECT category FROM chores WHERE title = 'Mop floor'").fetch_one(&pool).await.unwrap();
+        assert_eq!(chore_cat.as_deref(), Some("Cleaning"));
+
+        let bad_req = axum::http::Request::builder()
+            .method(axum::http::Method::POST)
+            .uri("/chores")
+            .header(axum::http::header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"title":"Bad cat","assigned_to":"Alex","priority":"medium","status":"todo","category":"NotACategory"}"#))
+            .unwrap();
+        std::future::poll_fn(|cx| Service::<axum::http::Request<Body>>::poll_ready(&mut app, cx)).await.unwrap();
+        let bad_res = Service::call(&mut app, bad_req).await.unwrap();
+        assert_eq!(bad_res.status(), StatusCode::BAD_REQUEST);
     }
 }

@@ -6,7 +6,10 @@ import { render } from "../router.js";
 import { showModal } from "../shortcuts.js";
 import { cached } from "../store.js";
 import { cal } from "./calendar.js";
-import { asPending, memberChips, photoButton, repeatSelect, setPendingItems, SLOTS, SLOT_LABEL, syncMembers } from "./domain.js";
+import {
+  asPending, choreCategorySelect, photoButton, rememberMember, repeatSelect,
+  setPendingItems, SLOTS, SLOT_LABEL, syncMembers, whoField,
+} from "./domain.js";
 
 function routeDefaultKind() {
   const route = (location.hash.replace(/^#\/?/, "").split("/")[0]) || "home";
@@ -174,7 +177,6 @@ export function openQuickAdd() {
         h("button.primary", { type: "submit" }, "Add meal"),
       );
     } else if (kind === "chore") {
-      const whoInput = h("input", { name: "assigned_to", list: "rosie-members", placeholder: "Who", "aria-label": "Assigned to" });
       form = h(
         "form.stack",
         {
@@ -182,9 +184,11 @@ export function openQuickAdd() {
             e.preventDefault();
             const d = formData(e.target);
             const title = d.title.trim();
+            const assigned_to = (d.assigned_to || "").trim() || "Anyone";
+            rememberMember(assigned_to);
             if (await create("/chores", {
-              title, description: null, assigned_to: d.assigned_to.trim() || "Anyone",
-              priority: d.priority, status: "todo", points: Number(d.points) || 1,
+              title, description: null, assigned_to,
+              priority: d.priority, status: "todo", category: d.category || null,
               due_date: d.due_date || null, repeat: d.repeat || null,
             }, title)) {
               close();
@@ -194,11 +198,10 @@ export function openQuickAdd() {
         h("input", { name: "title", placeholder: "Chore", required: true, autocomplete: "off", "aria-label": "Chore" }),
         h(
           "div.row-fields",
-          whoInput,
+          whoField("Anyone", "Assigned to", ""),
+          choreCategorySelect("", ""),
           h("select", { name: "priority", "aria-label": "Priority" }, ["low", "medium", "high"].map((p) => h("option", { value: p, selected: p === "medium" }, p[0].toUpperCase() + p.slice(1)))),
-          h("input", { name: "points", type: "number", min: "1", value: "1", "aria-label": "Points" }),
         ),
-        memberChips(whoInput),
         h(
           "div.row-fields",
           h("input", { name: "due_date", type: "date", value: defaultDate, "aria-label": "Due date" }),
@@ -207,7 +210,6 @@ export function openQuickAdd() {
         h("button.primary", { type: "submit" }, "Add chore"),
       );
     } else {
-      const whoInput = h("input", { name: "assigned_to", list: "rosie-members", placeholder: "Who pays", "aria-label": "Who pays" });
       form = h(
         "form.stack",
         {
@@ -215,9 +217,11 @@ export function openQuickAdd() {
             e.preventDefault();
             const d = formData(e.target);
             const title = d.title.trim();
+            const assigned_to = (d.assigned_to || "").trim() || "Anyone";
+            rememberMember(assigned_to);
             if (await create("/chores", {
-              title, description: null, assigned_to: d.assigned_to.trim() || "Anyone",
-              priority: "high", status: "todo", points: 1, due_date: d.due_date || defaultDate,
+              title, description: null, assigned_to,
+              priority: "high", status: "todo", due_date: d.due_date || defaultDate,
               amount: Number(d.amount), category: d.category, repeat: d.repeat || null,
             }, `bill ${title}`)) {
               close();
@@ -229,9 +233,8 @@ export function openQuickAdd() {
           "div.row-fields",
           h("input", { name: "amount", type: "number", step: "0.01", min: "0.01", placeholder: "0.00", required: true, "aria-label": "Amount" }),
           h("select", { name: "category", "aria-label": "Category" }, CATEGORIES.map((c) => h("option", { value: c, selected: c === "Utilities" }, c))),
-          whoInput,
+          whoField("Anyone", "Who pays", ""),
         ),
-        memberChips(whoInput),
         h(
           "div.row-fields",
           h("input", { name: "due_date", type: "date", value: defaultDate, "aria-label": "Due date" }),
