@@ -18,7 +18,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
   - Clamp `add_pantry_batch` (`L918`) with `min(1e9, ...)` to match `adjust_pantry_item` (`L108`).
   - Trim `put_settings` (`L416-420`) values *before* length/character validation.
   - Normalize/clamp AI-returned `title` and `category` in `scan_receipt` (`L861-867`).
-- [ ] **Validate dropped calendar payload IDs on the client** (`web/app.js:178-180, 253-261`)
+- [x] **Validate dropped calendar payload IDs on the client** (`web/app.js:178-180, 253-261`)
   - Verify `Number.isInteger(Number(id))` and allowed `kind` before interpolating into `/chores/${id}` or `/meals/${id}`.
 
 ---
