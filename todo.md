@@ -81,7 +81,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
   - Keep drag-and-drop as a desktop shortcut, and add a tap-friendly **Move / Reschedule** date picker/quick actions (`Today`, `Tomorrow`, `+1 week`) on chores, bills, and meals.
   - Replace hover-only `title` tooltips with visible labels/pills (sync waiting banner, repeat badge actions, budget save feedback, linked-expense info).
   - Replace blocking `confirm()` dialogs (`web/app.js:104, 318`) with inline confirmation or an Undo toast.
-- [ ] **Add Edit UIs across all entities**
+- [x] **Add Edit UIs across all entities**
   - Wire up pantry item editing (already partially stubbed in `web/app.js:898` and `PUT /api/pantry/{id}`) to edit name, quantity, unit, and expiry date.
   - Add `PATCH`/`PUT` editing for chores, bills, and expenses (title, amount, category, date, assigned member, priority, points).
 - [ ] **Connect Meals, Recipes, and Pantry end-to-end** (`web/app.js:365, 712`)
