@@ -12,13 +12,27 @@ const SERVER_BIN = path.join(ROOT, "server", "target", "debug", process.platform
 
 function verifyEsmAndServiceWorker() {
   const roots = [path.join(ROOT, "web", "app.js")];
+  const checkPerms = (p, isDir) => {
+    const mode = fs.statSync(p).mode;
+    const needed = isDir ? 0o005 : 0o004;
+    assert.equal(mode & needed, needed, `${p} must be world-${isDir ? "readable/traversable" : "readable"} so non-root Docker user can serve it`);
+  };
   const walk = (d) => {
+    checkPerms(d, true);
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const p = path.join(d, e.name);
       if (e.isDirectory()) walk(p);
-      else if (p.endsWith(".js")) roots.push(p);
+      else {
+        checkPerms(p, false);
+        if (p.endsWith(".js")) roots.push(p);
+      }
     }
   };
+  checkPerms(path.join(ROOT, "web"), true);
+  for (const e of fs.readdirSync(path.join(ROOT, "web"), { withFileTypes: true })) {
+    const p = path.join(ROOT, "web", e.name);
+    if (e.isFile()) checkPerms(p, false);
+  }
   walk(path.join(ROOT, "web", "js"));
 
   const swSrc = fs.readFileSync(path.join(ROOT, "web", "sw.js"), "utf8");
@@ -439,6 +453,7 @@ async function runApiSmoke(baseUrl) {
   assert.equal(health.status, 200);
   assert.ok(health.headers.get("content-security-policy"), "CSP header should be set");
   assert.equal(health.headers.get("x-frame-options"), "DENY");
+  assert.equal(health.headers.get("cache-control"), "no-cache");
 
   const idx = await fetch(`${baseUrl}/`);
   assert.equal(idx.status, 200);

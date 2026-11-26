@@ -145,6 +145,9 @@ fn with_security_headers(mut res: Response) -> Response {
     h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
     h.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    if !h.contains_key(header::CACHE_CONTROL) {
+        h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    }
     res
 }
 
