@@ -21,6 +21,7 @@ pub fn app_router(pool: SqlitePool) -> Router {
         .route("/pantry/scan-photo", post(scan_pantry_photo).layer(photo_limit()))
         .route("/recipes", get(recipes::get_recipes).post(recipes::add_recipe))
         .route("/recipes/import", post(recipes::import_recipe).layer(photo_limit()))
+        .route("/recipes/images/{file}", get(recipes::get_recipe_image))
         .route("/recipes/{id}", axum::routing::put(recipes::update_recipe).delete(recipes::delete_recipe))
         .route("/meals", get(get_meals).post(add_meal))
         .route("/meals/{id}", patch(update_meal).delete(delete_meal))

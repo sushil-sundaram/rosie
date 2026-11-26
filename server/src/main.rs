@@ -23,6 +23,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    let image_dir = std::env::var("IMAGE_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            db_url
+                .strip_prefix("sqlite://")
+                .and_then(|p| std::path::Path::new(p).parent())
+                .unwrap_or_else(|| std::path::Path::new("../data"))
+                .join("images")
+        });
+    recipes::init_image_dir(image_dir);
+
     let connection_options = SqliteConnectOptions::from_str(&db_url)?
         .create_if_missing(true)
         // Relied on for meal_plan.recipe_id and recipe_ingredients; stated, not assumed.
@@ -36,6 +47,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     sqlx::migrate!("./migrations").run(&pool).await?;
+
+    let migrate_pool = pool.clone();
+    tokio::spawn(async move {
+        recipes::migrate_external_images(&migrate_pool).await;
+    });
 
     // Web UI: static files from WEB_DIR (defaults to ../web for local runs).
     let web_dir = std::env::var("WEB_DIR").unwrap_or_else(|_| "../web".to_string());

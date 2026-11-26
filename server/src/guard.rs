@@ -132,7 +132,7 @@ fn expected_scheme(req: &Request) -> &'static str {
     "http"
 }
 
-const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https: data:; \
+const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
                    connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
 fn with_security_headers(mut res: Response) -> Response {

@@ -991,6 +991,8 @@ const openRecipes = new Set(); // ids of expanded recipe cards // an import is i
 const lines = (s) => String(s || "").split("\n").map((l) => l.trim()).filter(Boolean);
 const fmtTime = (m) => (!m ? "" : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}`);
 const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+const safeHref = (u) => (/^https?:\/\//i.test(String(u || "").trim()) ? String(u).trim() : null);
+const safeImg = (u) => (/^(\/api\/recipes\/images\/|data:image\/)/i.test(String(u || "").trim()) ? String(u).trim() : null);
 const asDraft = (r, extra = {}) => ({
   id: r.id || null,
   name: r.name || "",
@@ -1077,18 +1079,20 @@ function recipeEditor() {
     : d.method === "ai" ? "read by local AI — check the amounts before saving"
     : "new recipe";
   const n = lines(d.ingredients).length;
+  const imgUrl = safeImg(d.image_url);
+  const srcUrl = safeHref(d.source_url);
   return h("form.review.recipe-edit", { onsubmit: save, "aria-label": "review recipe" },
     h("div.spread",
       h("h3", note),
       h("button.icon", { type: "button", onclick: () => { recipeDraft = null; render(); }, "aria-label": "discard" }, "×")),
     h("div.edit-head",
-      d.image_url ? h("img.thumb", { src: d.image_url, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }) : null,
+      imgUrl ? h("img.thumb", { src: imgUrl, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }) : null,
       h("div.stack.grow",
         h("input", { name: "name", placeholder: "recipe name", required: true, autocomplete: "off", "aria-label": "recipe name", ...bind("name") }),
         h("div.row",
           h("label.field", h("span.meta", "serves"), h("input", { name: "servings", autocomplete: "off", ...bind("servings") })),
           h("label.field", h("span.meta", "minutes"), h("input", { name: "time_minutes", type: "number", min: "0", ...bind("time_minutes") }))),
-        d.source_url ? h("a.meta", { href: d.source_url, target: "_blank", rel: "noopener noreferrer" }, hostOf(d.source_url) + " ↗") : null)),
+        srcUrl ? h("a.meta", { href: srcUrl, target: "_blank", rel: "noopener noreferrer" }, hostOf(srcUrl) + " ↗") : null)),
     h("label.meta", { for: "rd-ing" }, "ingredients — one per line"),
     h("textarea", { id: "rd-ing", name: "ingredients", rows: Math.min(16, Math.max(4, n + 1)), oninput: bind("ingredients").oninput }, d.ingredients),
     h("label.meta", { for: "rd-steps" }, "steps — one per line"),
@@ -1112,16 +1116,18 @@ function stepGroups(steps) {
 function recipeCard(r) {
   const steps = lines(r.instructions);
   const facts = [fmtTime(r.time_minutes), r.servings && (/^\d+$/.test(r.servings) ? `serves ${r.servings}` : r.servings)].filter(Boolean);
+  const imgUrl = safeImg(r.image_url);
+  const srcUrl = safeHref(r.source_url);
   return [
     h("details.grow.recipe", { open: openRecipes.has(r.id), ontoggle: (e) => { if (e.target.open) openRecipes.add(r.id); else openRecipes.delete(r.id); } },
       h("summary", h("span.title", r.name), facts.length ? h("span.meta", " · " + facts.join(" · ")) : null),
       h("div.recipe-body",
-        r.image_url ? h("img.photo", { src: r.image_url, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }) : null,
+        imgUrl ? h("img.photo", { src: imgUrl, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }) : null,
         r.ingredients.length ? [h("h4", `ingredients (${r.ingredients.length})`), h("ul.ingredients", r.ingredients.map((i) => h("li", i.text)))] : null,
         steps.length ? [h("h4", "steps"), stepGroups(steps)] : null,
         h("div.scan",
           h("button", { type: "button", onclick: async () => { recipeDraft = asDraft(r); await render(); window.scrollTo(0, 0); } }, "edit"),
-          r.source_url ? h("a.meta", { href: r.source_url, target: "_blank", rel: "noopener noreferrer" }, hostOf(r.source_url) + " ↗") : null))),
+          srcUrl ? h("a.meta", { href: srcUrl, target: "_blank", rel: "noopener noreferrer" }, hostOf(srcUrl) + " ↗") : null))),
     delBtn(`/recipes/${r.id}`, r.name),
   ];
 }
