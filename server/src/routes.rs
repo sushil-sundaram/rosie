@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, patch, post},
@@ -121,10 +121,76 @@ async fn adjust_pantry_item(
     }
 }
 
-async fn get_meals(State(pool): State<SqlitePool>) -> impl IntoResponse {
-    match sqlx::query_as::<_, Meal>("SELECT * FROM meal_plan ORDER BY date, slot")
-        .fetch_all(&pool)
-        .await
+#[derive(serde::Deserialize, Default)]
+pub struct DateQuery {
+    pub month: Option<String>,
+    pub from: Option<String>,
+    pub to: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+fn valid_month(m: &str) -> bool {
+    let b = m.as_bytes();
+    if !(b.len() == 7 && b[4] == b'-' && b.iter().enumerate().all(|(i, c)| i == 4 || c.is_ascii_digit())) {
+        return false;
+    }
+    let y: u32 = m[..4].parse().unwrap_or(0);
+    let mo: u32 = m[5..7].parse().unwrap_or(0);
+    y >= 1900 && (1..=12).contains(&mo)
+}
+
+fn parse_date_query(q: &DateQuery) -> Result<(Option<String>, Option<String>, i64, i64), &'static str> {
+    if q.month.is_some() && (q.from.is_some() || q.to.is_some()) {
+        return Err("use either month or from/to, not both");
+    }
+    let (from, to) = if let Some(m) = q.month.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if !valid_month(m) {
+            return Err("month must be YYYY-MM");
+        }
+        (Some(format!("{m}-01")), Some(format!("{m}-31")))
+    } else {
+        let f = q.from.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+        let t = q.to.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+        if f.as_deref().is_some_and(|d| !valid_date(d)) || t.as_deref().is_some_and(|d| !valid_date(d)) {
+            return Err("from/to must be real dates (YYYY-MM-DD)");
+        }
+        if let (Some(fd), Some(td)) = (f.as_deref(), t.as_deref()) {
+            if fd > td {
+                return Err("from must not be after to");
+            }
+        }
+        (f, t)
+    };
+    let offset = match q.offset {
+        Some(o) if o < 0 => return Err("offset must be 0 or more"),
+        Some(o) => o,
+        None => 0,
+    };
+    let limit = match q.limit {
+        Some(l) if !(1..=1000).contains(&l) => return Err("limit must be between 1 and 1000"),
+        Some(l) => l,
+        None if q.offset.is_some() => 500,
+        None => -1,
+    };
+    Ok((from, to, limit, offset))
+}
+
+async fn get_meals(State(pool): State<SqlitePool>, Query(q): Query<DateQuery>) -> impl IntoResponse {
+    let (from, to, limit, offset) = match parse_date_query(&q) {
+        Ok(v) => v,
+        Err(msg) => return bad_request(msg),
+    };
+    match sqlx::query_as::<_, Meal>(
+        "SELECT * FROM meal_plan WHERE (?1 IS NULL OR date >= ?1) AND (?2 IS NULL OR date <= ?2) \
+         ORDER BY date, slot LIMIT ?3 OFFSET ?4",
+    )
+    .bind(from)
+    .bind(to)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&pool)
+    .await
     {
         Ok(meals) => (StatusCode::OK, Json(json!(meals))),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to fetch meals"}))),
@@ -708,10 +774,21 @@ async fn add_chore(
     }
 }
 
-async fn get_expenses(State(pool): State<SqlitePool>) -> impl IntoResponse {
-    match sqlx::query_as::<_, Expense>("SELECT * FROM expenses ORDER BY date DESC, id DESC")
-        .fetch_all(&pool)
-        .await
+async fn get_expenses(State(pool): State<SqlitePool>, Query(q): Query<DateQuery>) -> impl IntoResponse {
+    let (from, to, limit, offset) = match parse_date_query(&q) {
+        Ok(v) => v,
+        Err(msg) => return bad_request(msg),
+    };
+    match sqlx::query_as::<_, Expense>(
+        "SELECT * FROM expenses WHERE (?1 IS NULL OR date >= ?1) AND (?2 IS NULL OR date <= ?2) \
+         ORDER BY date DESC, id DESC LIMIT ?3 OFFSET ?4",
+    )
+    .bind(from)
+    .bind(to)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&pool)
+    .await
     {
         Ok(expenses) => (StatusCode::OK, Json(json!(expenses))),
         Err(_) => (
@@ -1292,5 +1369,53 @@ mod tests {
         assert_eq!(validate_image_base64("data:image/jpeg;base64,/9j/4AAQ").unwrap(), "/9j/4AAQ");
         assert!(validate_image_base64("data:text/html;base64,PGh0bWw+").is_err());
         assert!(validate_image_base64("not valid base64!!").is_err());
+    }
+
+    #[tokio::test]
+    async fn meals_and_expenses_support_date_window_and_pagination() {
+        let pool = test_pool().await;
+        sqlx::query("INSERT INTO expenses (title, amount, category, date) VALUES ('Oct', 10.0, 'Other', '2026-10-31'), ('Nov1', 20.0, 'Groceries', '2026-11-05'), ('Nov2', 30.0, 'Groceries', '2026-11-20'), ('Dec', 40.0, 'Other', '2026-12-01')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO meal_plan (date, slot, title) VALUES ('2026-10-31', 'dinner', 'Pasta'), ('2026-11-10', 'lunch', 'Dal'), ('2026-12-02', 'breakfast', 'Poha')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Month filter on expenses
+        let res = get_expenses(State(pool.clone()), Query(DateQuery { month: Some("2026-11".into()), ..Default::default() }))
+            .await
+            .into_response();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(res.into_body(), 1024 * 1024).await.unwrap();
+        let rows: Vec<Expense> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].title, "Nov2");
+
+        // Pagination
+        let res = get_expenses(State(pool.clone()), Query(DateQuery { limit: Some(1), offset: Some(1), ..Default::default() }))
+            .await
+            .into_response();
+        let body = axum::body::to_bytes(res.into_body(), 1024 * 1024).await.unwrap();
+        let rows: Vec<Expense> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "Nov2");
+
+        // Range filter on meals
+        let res = get_meals(State(pool.clone()), Query(DateQuery { from: Some("2026-11-01".into()), to: Some("2026-11-30".into()), ..Default::default() }))
+            .await
+            .into_response();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(res.into_body(), 1024 * 1024).await.unwrap();
+        let meals: Vec<Meal> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(meals.len(), 1);
+        assert_eq!(meals[0].title, "Dal");
+
+        // Invalid month rejected
+        let res = get_expenses(State(pool), Query(DateQuery { month: Some("2026-13".into()), ..Default::default() }))
+            .await
+            .into_response();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
 }

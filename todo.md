@@ -53,7 +53,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
   - Cache fetched datasets in memory + `IndexedDB` (stale-while-revalidate) so switching selected days, toggling filters, or changing views renders immediately without firing 7 HTTP requests (`settings`, `pantry`, `chores`, `meals`, `expenses`, `recipes`, `budgets`) per tap.
 - [ ] **Scope SSE refreshes by changed path** (`server/src/sync.rs:77`, `web/app.js:1228-1232`)
   - Use the `path` field already sent in `/api/events` payloads to refresh only the affected resource slice rather than re-fetching the entire database on every change.
-- [ ] **Add query filtering / pagination on growing endpoints** (`server/src/routes.rs`)
+- [x] **Add query filtering / pagination on growing endpoints** (`server/src/routes.rs`)
   - Support date-window queries (e.g. `GET /api/expenses?month=YYYY-MM`, `GET /api/meals?from=...&to=...`) so mobile payloads stay small over years of household data.
 - [ ] **Convert Ollama AI scans into async background jobs** (`server/src/routes.rs:772-785`, `web/app.js:449`)
   - Change `/expenses/scan-receipt`, `/pantry/scan-photo`, and `/recipes/import` (AI paths) to return `202 Accepted` with a `job_id`, execute Ollama in a background Tokio task, and emit job completion over `/api/events` (or `GET /api/jobs/{id}`).
