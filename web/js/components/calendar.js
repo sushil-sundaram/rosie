@@ -36,6 +36,10 @@ export function shiftMonth(n) {
   cal.m = d.getMonth();
 }
 
+export function shiftWeek(n) {
+  selectDay(addDays(cal.sel, n * 7));
+}
+
 export function selectDay(ds, focus = false) {
   cal.sel = ds;
   const d = parseISO(ds);
@@ -151,9 +155,56 @@ export function calendar({ chipsFor, onMove, legend }) {
   );
 }
 
+/** Compact horizontal 7-day strip around the selected date for mobile agenda navigation. */
+export function weekStrip({ chipsFor, extraNav = null }) {
+  const selDate = parseISO(cal.sel);
+  const lead = (selDate.getDay() + 6) % 7;
+  const startDs = addDays(cal.sel, -lead);
+  const title = selDate.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const ds = addDays(startDs, i);
+    const d = parseISO(ds);
+    const chips = chipsFor(ds);
+    const cls = ["week-day", ds === today() && "today", ds === cal.sel && "sel"].filter(Boolean).join(" ");
+    days.push(
+      h(
+        "button",
+        {
+          type: "button",
+          class: cls,
+          "aria-pressed": ds === cal.sel ? "true" : "false",
+          "aria-label": fmtDay(ds) + (chips.length ? `, ${chips.length} item${chips.length > 1 ? "s" : ""}` : ""),
+          onclick: () => selectDay(ds),
+        },
+        h("span.wd-dow", d.toLocaleDateString(undefined, { weekday: "short" })),
+        h("span.wd-num", d.getDate()),
+        h("span.wd-dots", chips.slice(0, 4).map((c) => h("i", { class: c.cls || "c-muted" }))),
+      ),
+    );
+  }
+  return h(
+    "section.week-strip-wrap",
+    h(
+      "div.week-head",
+      h("span.week-title", title),
+      h(
+        "div.week-actions",
+        h("button.icon", { type: "button", onclick: () => shiftWeek(-1), "aria-label": "Previous week" }, "←"),
+        h("button.icon", { type: "button", onclick: () => selectDay(today()) }, "Today"),
+        h("button.icon", { type: "button", onclick: () => shiftWeek(1), "aria-label": "Next week" }, "→"),
+        extraNav,
+      ),
+    ),
+    h("div.week-strip", { role: "group", "aria-label": "Week days" }, days),
+  );
+}
+
 /** Two-column layout: calendar + extras on the left, selected-day panel on the right. */
-export function split(mainKids, panelKids) {
-  return h("div.split",
+export function split(mainKids, panelKids, opts = {}) {
+  const cls = ["split", opts.className].filter(Boolean).join(" ");
+  return h("div", { class: cls },
+    opts.mobileTop || null,
     h("div.main-col", mainKids),
     h("aside.panel", { "aria-label": `Selected day ${fmtDay(cal.sel)}` },
       h("div.panel-head",

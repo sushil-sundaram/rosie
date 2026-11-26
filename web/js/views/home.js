@@ -2,7 +2,7 @@ import { h, list, section, segmented, stat, store } from "../dom.js";
 import { cents, fmtQty, money, moneyShort } from "../money.js";
 import { render } from "../router.js";
 import { cached } from "../store.js";
-import { cal, calendar, gridRange, inMonth, monthKey, moveItem, split } from "../components/calendar.js";
+import { cal, calendar, gridRange, inMonth, monthKey, moveItem, split, weekStrip } from "../components/calendar.js";
 import {
   bySlot, chipLabel, choreForm, choreRow, expenseForm, expenseRow,
   ghostChip, mealForm, mealRow, projected, SLOT_COLOR,
@@ -43,7 +43,7 @@ export async function homeView(root) {
       .forEach((c) => out.push({ label: chipLabel(c), cls: c.amount ? "c-yellow" : "c-orange", kind: "chore", id: c.id, done: c.status === "done" }));
     if (layers.expenses) {
       const t = expenses.filter((e) => e.date === ds).reduce((s, e) => s + e.amount, 0);
-      if (t) out.push({ label: moneyShort(t), cls: "c-pink", title: `spent ${money(t)}` });
+      if (t) out.push({ label: moneyShort(t), cls: "c-pink", title: `Spent ${money(t)}` });
     }
     return out;
   };
@@ -52,6 +52,8 @@ export async function homeView(root) {
   const dMeals = meals.filter((m) => m.date === sel).sort(bySlot);
   const dChores = chores.filter((c) => c.due_date === sel);
   const dExp = expenses.filter((e) => e.date === sel);
+  const calMode = store.get("homeCalMode", "week");
+  const modeToggle = segmented([["week", "Week"], ["month", "Month"]], calMode, (k) => { store.set("homeCalMode", k); render(); }, "Calendar view");
 
   root.append(split(
     [
@@ -65,7 +67,7 @@ export async function homeView(root) {
       h("div.layers", { role: "group", "aria-label": "Show on calendar" },
         [["meals", "Meals", "c-purple"], ["chores", "Chores", "c-orange"], ["expenses", "Expenses", "c-pink"]].map(([k, label, c]) =>
           h("button.toggle", { type: "button", class: layers[k] ? `on ${c}` : null, "aria-pressed": String(!!layers[k]), onclick: () => toggleLayer(k) }, label))),
-      calendar({ chipsFor, onMove: moveItem }),
+      h("div.home-cal-wrap", calendar({ chipsFor, onMove: moveItem })),
     ],
     [
       section("Meals", list(dMeals, mealRow, "Nothing planned")),
@@ -76,5 +78,9 @@ export async function homeView(root) {
       homeAdd === "chore" ? choreForm(sel) : homeAdd === "meal" ? mealForm(sel, recipes) : expenseForm(sel),
       low.length ? section("Running low", list(low, (p) => [h("span.grow.title", p.name), h("span.num.c-red", `${fmtQty(p.quantity)} ${p.unit}`)])) : null,
     ],
+    {
+      className: `home-split mode-${calMode}`,
+      mobileTop: h("div.home-mobile-top", weekStrip({ chipsFor, extraNav: modeToggle })),
+    },
   ));
 }
