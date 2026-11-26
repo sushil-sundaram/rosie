@@ -1,8 +1,8 @@
-import { api } from "../api.js";
 import { h, list, section, segmented, stat, store } from "../dom.js";
 import { cents, fmtQty, money, moneyShort } from "../money.js";
 import { render } from "../router.js";
-import { cal, calendar, inMonth, moveItem, split } from "../components/calendar.js";
+import { cached } from "../store.js";
+import { cal, calendar, gridRange, inMonth, monthKey, moveItem, split } from "../components/calendar.js";
 import {
   bySlot, chipLabel, choreForm, choreRow, expenseForm, expenseRow,
   ghostChip, mealForm, mealRow, projected, SLOT_COLOR,
@@ -11,8 +11,15 @@ import {
 let homeAdd = "chore";
 
 export async function homeView(root) {
+  const { from, to } = gridRange();
+  const win = monthKey();
   const [pantry, chores, meals, expenses, recipes, budgets] = await Promise.all([
-    api("/pantry"), api("/chores"), api("/meals"), api("/expenses"), api("/recipes"), api("/budgets"),
+    cached("pantry", "/pantry"),
+    cached("chores", "/chores"),
+    cached(`meals:${win}`, `/meals?from=${from}&to=${to}`),
+    cached(`expenses:${win}`, `/expenses?from=${from}&to=${to}`),
+    cached("recipes", "/recipes"),
+    cached("budgets", "/budgets"),
   ]);
   const budgetTotal = budgets.reduce((s, b) => s + b.amount, 0);
   const layers = store.get("layers", { meals: true, chores: true, expenses: true });

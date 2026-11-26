@@ -1,7 +1,7 @@
-import { api } from "../api.js";
 import { fmtDay } from "../dates.js";
 import { delBtn, eyebrow, h, list, section, segmented, store } from "../dom.js";
 import { render } from "../router.js";
+import { cached } from "../store.js";
 import { cal, calendar, dragData, moveItem, split } from "../components/calendar.js";
 import {
   chipLabel, choreForm, choreRow, ghostChip, priorityTag,
@@ -27,7 +27,7 @@ function board(chores) {
 }
 
 export async function choresView(root) {
-  const chores = await api("/chores");
+  const chores = await cached("chores", "/chores");
   const mode = store.get("choresMode", "month");
   const setMode = (m) => {
     store.set("choresMode", m);

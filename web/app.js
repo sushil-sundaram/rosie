@@ -2,6 +2,7 @@ import { api, getAuthState, setApiHooks, setAuthState } from "./js/api.js";
 import { consumeFocusSel } from "./js/components/calendar.js";
 import { setDomRender } from "./js/dom.js";
 import { configureRouter, render } from "./js/router.js";
+import { clearCache, invalidateAll, invalidateForPath, setStoreUpdateHook } from "./js/store.js";
 import { createSync } from "./js/sync.js";
 import { initTheme } from "./js/theme.js";
 import { choresView } from "./js/views/chores.js";
@@ -12,15 +13,27 @@ import { pantryView } from "./js/views/pantry.js";
 import { recipesView } from "./js/views/recipes.js";
 import { createLoginView, createSettingsView } from "./js/views/settings.js";
 
-const sync = createSync(() => render());
+const sync = createSync(
+  () => render(),
+  (paths) => {
+    if (!paths || !paths.length) invalidateAll();
+    else paths.forEach(invalidateForPath);
+  },
+);
 
 setDomRender(render);
+setStoreUpdateHook(() => render());
 setApiHooks({
   authLost: () => {
+    clearCache();
     sync.disconnect();
     setTimeout(() => render(), 0);
   },
-  notFoundWrite: () => sync.refreshSoon(),
+  notFoundWrite: (path) => {
+    invalidateForPath(path);
+    sync.refreshSoon(path);
+  },
+  mutation: (path) => invalidateForPath(path),
 });
 
 configureRouter({
