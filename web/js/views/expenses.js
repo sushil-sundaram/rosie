@@ -3,7 +3,8 @@ import { fmtDay, parseISO, today } from "../dates.js";
 import { delBtn, eyebrow, fail, h, list, section, segmented, toast } from "../dom.js";
 import { CAT_COLOR, CATEGORIES, cents, money, moneyShort } from "../money.js";
 import { render } from "../router.js";
-import { cal, calendar, inMonth, moveItem, split } from "../components/calendar.js";
+import { cached } from "../store.js";
+import { cal, calendar, gridRange, inMonth, monthKey, moveItem, split } from "../components/calendar.js";
 import {
   billForm, chipLabel, expenseForm, expenseRow, ghostChip,
   pantryReview, projected, repeatTag, setChore,
@@ -13,7 +14,14 @@ let expenseAdd = "expense";
 const budgetColor = (spent, budget) => (!budget ? "var(--muted)" : cents(spent) > cents(budget) ? "var(--red)" : cents(spent) >= cents(budget) * 0.8 ? "var(--orange)" : "var(--green)");
 
 export async function expensesView(root) {
-  const [expenses, budgets, chores, pantry] = await Promise.all([api("/expenses"), api("/budgets"), api("/chores"), api("/pantry")]);
+  const { from, to } = gridRange();
+  const win = monthKey();
+  const [expenses, budgets, chores, pantry] = await Promise.all([
+    cached(`expenses:${win}`, `/expenses?from=${from}&to=${to}`),
+    cached("budgets", "/budgets"),
+    cached("chores", "/chores"),
+    cached("pantry", "/pantry"),
+  ]);
   const linkedCount = (e) => pantry.filter((p) => p.expense_id === e.id).length;
   const month = expenses.filter((e) => inMonth(e.date));
   const total = month.reduce((s, e) => s + e.amount, 0);

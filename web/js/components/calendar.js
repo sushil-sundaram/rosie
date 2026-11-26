@@ -20,6 +20,16 @@ export function consumeFocusSel() {
 export const monthKey = () => `${cal.y}-${String(cal.m + 1).padStart(2, "0")}`;
 export const inMonth = (d) => !!d && d.startsWith(monthKey());
 
+export function gridRange(y = cal.y, m = cal.m) {
+  const first = new Date(y, m, 1);
+  const lead = (first.getDay() + 6) % 7;
+  const days = new Date(y, m + 1, 0).getDate();
+  const weeks = Math.ceil((lead + days) / 7);
+  const start = new Date(y, m, 1 - lead);
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + weeks * 7 - 1);
+  return { from: iso(start), to: iso(end) };
+}
+
 export function shiftMonth(n) {
   const d = new Date(cal.y, cal.m + n, 1);
   cal.y = d.getFullYear();

@@ -2,6 +2,7 @@ import { api, getAuthState, setAuthState } from "../api.js";
 import { fail, formData, h, segmented, toast } from "../dom.js";
 import { CURRENCIES, getSettings, money, setSettings } from "../money.js";
 import { render } from "../router.js";
+import { clearCache } from "../store.js";
 import { currentTheme, setTheme } from "../theme.js";
 
 export function createLoginView(sync) {
@@ -74,6 +75,7 @@ export function createSettingsView(sync) {
           onclick: async () => {
             try {
               await api("/auth/logout", { method: "POST" });
+              clearCache();
               setAuthState({ required: true, authenticated: false });
               sync.disconnect();
               toast("signed out");

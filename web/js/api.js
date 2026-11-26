@@ -4,6 +4,7 @@ export const CLIENT_ID = (crypto.randomUUID && crypto.randomUUID()) || String(Ma
 let authState = { required: false, authenticated: true };
 let onAuthLost = () => {};
 let onNotFoundWrite = () => {};
+let onMutation = () => {};
 
 export function getAuthState() {
   return authState;
@@ -13,9 +14,10 @@ export function setAuthState(next) {
   authState = { ...authState, ...next };
 }
 
-export function setApiHooks({ authLost, notFoundWrite }) {
+export function setApiHooks({ authLost, notFoundWrite, mutation }) {
   if (authLost) onAuthLost = authLost;
   if (notFoundWrite) onNotFoundWrite = notFoundWrite;
+  if (mutation) onMutation = mutation;
 }
 
 export async function api(path, opts = {}) {
@@ -37,9 +39,13 @@ export async function api(path, opts = {}) {
       onAuthLost();
     }
     if (res.status === 404 && opts.method && opts.method !== "GET") {
-      setTimeout(() => onNotFoundWrite(), 0);
+      onMutation(path);
+      setTimeout(() => onNotFoundWrite(path), 0);
     }
     throw new Error((data && (data.error || data.message)) || `HTTP ${res.status}`);
+  }
+  if (opts.method && opts.method !== "GET" && opts.method !== "HEAD") {
+    onMutation(path);
   }
   return data;
 }

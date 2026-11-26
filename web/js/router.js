@@ -1,6 +1,7 @@
-import { api, getAuthState } from "./api.js";
+import { getAuthState } from "./api.js";
 import { h } from "./dom.js";
 import { setSettings } from "./money.js";
+import { cached } from "./store.js";
 
 let views = {};
 let renderLogin = () => {};
@@ -38,7 +39,7 @@ export async function render() {
     if (auth.required && !auth.authenticated) {
       renderLogin(next);
     } else {
-      const s = await api("/settings").catch(() => null);
+      const s = await cached("settings", "/settings").catch(() => null);
       if (s) setSettings(s);
       const afterAuth = getAuthState();
       if (afterAuth.required && !afterAuth.authenticated) renderLogin(next);

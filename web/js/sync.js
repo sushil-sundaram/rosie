@@ -5,13 +5,15 @@ import { API, CLIENT_ID } from "./api.js";
  * something we re-render — unless this person is mid-typing, in which case the
  * dot turns orange and the refresh waits until they leave the field (or click the dot).
  */
-export function createSync(onRefresh) {
+export function createSync(onRefresh, onInvalidate = () => {}) {
   const dot = document.getElementById("sync");
   let stale = false;
   let timer;
   let wasDown = false;
   let es = null;
   let retryTimer = null;
+  const pendingPaths = new Set();
+  let fullRefresh = false;
 
   const setDot = (state, title) => {
     dot.className = `sync ${state}`;
@@ -31,11 +33,17 @@ export function createSync(onRefresh) {
       return;
     }
     stale = false;
+    const paths = fullRefresh ? null : [...pendingPaths];
+    pendingPaths.clear();
+    fullRefresh = false;
+    onInvalidate(paths);
     setDot("live", "live — changes from other devices appear automatically");
     onRefresh();
   };
-  const refreshSoon = () => {
+  const refreshSoon = (path = null) => {
     stale = true;
+    if (path) pendingPaths.add(path);
+    else fullRefresh = true;
     clearTimeout(timer);
     timer = setTimeout(tryRefresh, 200);
   };
@@ -43,6 +51,8 @@ export function createSync(onRefresh) {
   const markFresh = () => {
     if (!stale) return;
     stale = false;
+    pendingPaths.clear();
+    fullRefresh = false;
     if (dot.classList.contains("pending")) setDot("live", "live — changes from other devices appear automatically");
   };
 
@@ -82,13 +92,13 @@ export function createSync(onRefresh) {
       }
     };
     es.onmessage = (e) => {
-      let by = "";
+      let msg = {};
       try {
-        by = JSON.parse(e.data).by;
+        msg = JSON.parse(e.data) || {};
       } catch {
         /* keep-alive */
       }
-      if (by !== CLIENT_ID) refreshSoon();
+      if (msg.by !== CLIENT_ID) refreshSoon(msg.path || null);
     };
   }
   return { connect, disconnect, refreshSoon, markFresh };

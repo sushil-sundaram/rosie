@@ -49,9 +49,9 @@ Actionable checklist from the security, UX, and architecture audit covering both
 
 ## P2 — Architecture Upgrades (Cross-Device Performance & Reliability)
 
-- [ ] **Decouple client data store from DOM rendering** (`web/app.js:567, 1139-1169`)
+- [x] **Decouple client data store from DOM rendering** (`web/app.js:567, 1139-1169`)
   - Cache fetched datasets in memory + `IndexedDB` (stale-while-revalidate) so switching selected days, toggling filters, or changing views renders immediately without firing 7 HTTP requests (`settings`, `pantry`, `chores`, `meals`, `expenses`, `recipes`, `budgets`) per tap.
-- [ ] **Scope SSE refreshes by changed path** (`server/src/sync.rs:77`, `web/app.js:1228-1232`)
+- [x] **Scope SSE refreshes by changed path** (`server/src/sync.rs:77`, `web/app.js:1228-1232`)
   - Use the `path` field already sent in `/api/events` payloads to refresh only the affected resource slice rather than re-fetching the entire database on every change.
 - [x] **Add query filtering / pagination on growing endpoints** (`server/src/routes.rs`)
   - Support date-window queries (e.g. `GET /api/expenses?month=YYYY-MM`, `GET /api/meals?from=...&to=...`) so mobile payloads stay small over years of household data.

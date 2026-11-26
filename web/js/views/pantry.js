@@ -3,11 +3,15 @@ import { addDays, fmtDay, parseISO, today } from "../dates.js";
 import { delBtn, fail, formData, h, list, toast } from "../dom.js";
 import { fmtQty, money, moneyShort } from "../money.js";
 import { render } from "../router.js";
+import { cached } from "../store.js";
 import { cal } from "../components/calendar.js";
 import { asPending, pantryReview, photoButton, setPendingItems } from "../components/domain.js";
 
 export async function pantryView(root) {
-  const [items, expenses] = await Promise.all([api("/pantry"), api("/expenses")]);
+  const [items, expenses] = await Promise.all([
+    cached("pantry", "/pantry"),
+    cached("expenses:recent", "/expenses?limit=200"),
+  ]);
   const byId = Object.fromEntries(expenses.map((e) => [e.id, e]));
   const t = today();
 

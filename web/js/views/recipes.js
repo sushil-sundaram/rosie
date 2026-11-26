@@ -1,6 +1,7 @@
 import { api } from "../api.js";
 import { delBtn, fail, h, list, safeHref, safeImg, toast } from "../dom.js";
 import { render } from "../router.js";
+import { cached } from "../store.js";
 import { photoButton } from "../components/domain.js";
 
 /*
@@ -171,7 +172,7 @@ function recipeCard(r) {
 }
 
 export async function recipesView(root) {
-  const recipes = await api("/recipes");
+  const recipes = await cached("recipes", "/recipes");
   root.append(h("div.narrow",
     h("h1", "recipes"),
     h("p.sub", `${recipes.length} saved`),

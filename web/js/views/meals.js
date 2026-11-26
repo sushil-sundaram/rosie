@@ -1,10 +1,15 @@
-import { api } from "../api.js";
 import { delBtn, eyebrow, h } from "../dom.js";
-import { cal, calendar, inMonth, moveItem, split } from "../components/calendar.js";
+import { cached } from "../store.js";
+import { cal, calendar, gridRange, inMonth, monthKey, moveItem, split } from "../components/calendar.js";
 import { bySlot, mealForm, SLOT_COLOR, SLOTS } from "../components/domain.js";
 
 export async function mealsView(root) {
-  const [meals, recipes] = await Promise.all([api("/meals"), api("/recipes")]);
+  const { from, to } = gridRange();
+  const win = monthKey();
+  const [meals, recipes] = await Promise.all([
+    cached(`meals:${win}`, `/meals?from=${from}&to=${to}`),
+    cached("recipes", "/recipes"),
+  ]);
   const day = meals.filter((m) => m.date === cal.sel).sort(bySlot);
   root.append(eyebrow(`meals · ${meals.filter((m) => inMonth(m.date)).length} planned this month`), split(
     [calendar({
