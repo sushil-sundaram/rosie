@@ -434,7 +434,7 @@ function readImage(file, maxSide = 1600) {
 
 /** A button that opens the camera/file picker, sends the photo to `path`, and hands back the JSON. */
 function photoButton(label, busyText, path, onResult) {
-  const input = h("input", { type: "file", accept: "image/*", capture: "environment", hidden: true });
+  const input = h("input", { type: "file", accept: "image/*", hidden: true });
   const btn = h("button", { type: "button", onclick: () => input.click() }, label);
   const status = h("span.meta");
   input.addEventListener("change", async () => {
