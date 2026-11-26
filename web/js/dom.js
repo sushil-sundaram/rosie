@@ -67,14 +67,14 @@ export function list(items, row, ...emptyMsg) {
 
 export function delBtn(path, label) {
   return h("button.icon.del", {
-    title: `delete ${label}`,
-    "aria-label": `delete ${label}`,
+    title: `Delete ${label}`,
+    "aria-label": `Delete ${label}`,
     onclick: async (e) => {
       e.stopPropagation();
       if (!confirm(`Delete "${label}"?`)) return;
       try {
         await api(path, { method: "DELETE" });
-        toast(`deleted ${label}`);
+        toast(`Deleted ${label}`);
         triggerRender();
       } catch (err) {
         fail(err);
@@ -87,7 +87,7 @@ export function delBtn(path, label) {
 export async function create(path, body, label) {
   try {
     await api(path, { method: "POST", body });
-    toast(`added ${label}`);
+    toast(`Added ${label}`);
     triggerRender();
   } catch (err) {
     fail(err);

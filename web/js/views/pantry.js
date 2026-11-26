@@ -27,20 +27,20 @@ export async function pantryView(root) {
   const expiryTag = (p) => {
     if (!p.expires_on) return null;
     const cls = p.expires_on < t ? "c-red" : p.expires_on <= addDays(t, 3) ? "c-orange" : "c-muted";
-    return h("span.tag", { class: cls, title: `expires ${p.expires_on}` }, p.expires_on < t ? "expired" : `exp ${fmtDay(p.expires_on)}`);
+    return h("span.tag", { class: cls, title: `Expires ${p.expires_on}` }, p.expires_on < t ? "Expired" : `Exp ${fmtDay(p.expires_on)}`);
   };
   const boughtTag = (p) => {
     const e = byId[p.expense_id];
     if (!e) return null;
     return h("a.tag.c-pink", {
-      href: "#/expenses", title: `bought with ${e.title} (${money(e.amount)}) — open in expenses`,
+      href: "#/expenses", title: `Bought with ${e.title} (${money(e.amount)}) — open in Expenses`,
       onclick: () => {
         cal.sel = e.date;
         const d = parseISO(e.date);
         cal.y = d.getFullYear();
         cal.m = d.getMonth();
       },
-    }, `bought ${fmtDay(e.date)}`);
+    }, `Bought ${fmtDay(e.date)}`);
   };
 
   // Recent expenses a manual add can be linked to.
@@ -57,25 +57,25 @@ export async function pantryView(root) {
             items: [{ name: d.name.trim(), quantity: Number(d.quantity), unit: d.unit.trim() || "pcs", expires_on: d.expires_on || null }],
           },
         });
-        toast(out.topped_up ? `topped up ${d.name}` : `added ${d.name}`);
+        toast(out.topped_up ? `Topped up ${d.name}` : `Added ${d.name}`);
         render();
       } catch (err) {
         fail(err);
       }
     },
   },
-    h("input", { name: "name", placeholder: "item", required: true, autocomplete: "off", "aria-label": "item" }),
-    h("input.w-xs", { name: "quantity", type: "number", step: "any", min: "0", value: "1", required: true, "aria-label": "quantity" }),
-    h("input.w-xs", { name: "unit", placeholder: "unit", value: "pcs", "aria-label": "unit" }),
-    h("input.w-date", { name: "expires_on", type: "date", title: "expiry date (optional)", "aria-label": "expiry date, optional" }),
-    recent.length ? h("select", { name: "expense_id", "aria-label": "bought with expense, optional" },
-      h("option", { value: "" }, "bought with… (optional)"),
+    h("input", { name: "name", placeholder: "Item", required: true, autocomplete: "off", "aria-label": "Item" }),
+    h("input.w-xs", { name: "quantity", type: "number", step: "any", min: "0", value: "1", required: true, "aria-label": "Quantity" }),
+    h("input.w-xs", { name: "unit", placeholder: "Unit", value: "pcs", "aria-label": "Unit" }),
+    h("input.w-date", { name: "expires_on", type: "date", title: "Expiry date (optional)", "aria-label": "Expiry date, optional" }),
+    recent.length ? h("select", { name: "expense_id", "aria-label": "Bought with expense, optional" },
+      h("option", { value: "" }, "Bought with… (optional)"),
       recent.map((e) => h("option", { value: e.id }, `${fmtDay(e.date)} · ${e.title} · ${moneyShort(e.amount)}`))) : null,
-    h("button.primary", { type: "submit" }, "add"),
+    h("button.primary", { type: "submit" }, "Add"),
   );
 
-  const photo = photoButton("add from photo", "looking at the photo", "/pantry/scan-photo", (out) => {
-    if (!out.items || !out.items.length) return "no items recognised — try a closer, brighter photo";
+  const photo = photoButton("Add from photo", "Looking at the photo", "/pantry/scan-photo", (out) => {
+    if (!out.items || !out.items.length) return "No items recognised — try a closer, brighter photo";
     setPendingItems({ expense_id: null, items: asPending(out.items) });
     render();
     return "";
@@ -86,20 +86,20 @@ export async function pantryView(root) {
   const sorted = [...items].sort((a, b) => (b.quantity <= 1) - (a.quantity <= 1) || a.name.localeCompare(b.name));
 
   root.append(h("div.narrow",
-    h("h1", "pantry"),
+    h("h1", "Pantry"),
     h("p.sub", `${items.length} items · ${low.length} low · ${items.filter((i) => i.expires_on && i.expires_on <= addDays(t, 3)).length} expiring soon`),
     form,
     photo,
     pantryReview(),
-    h("h2", "inventory"),
+    h("h2", "Inventory"),
     list(sorted, (it) => [
       h("span.grow.title", it.name),
       expiryTag(it),
       boughtTag(it),
-      h("button.icon", { title: "decrease", "aria-label": `decrease ${it.name}`, onclick: () => adjust(it, -1), disabled: it.quantity <= 0 }, "−"),
+      h("button.icon", { title: "Decrease", "aria-label": `Decrease ${it.name}`, onclick: () => adjust(it, -1), disabled: it.quantity <= 0 }, "−"),
       h("span.num", { class: it.quantity <= 1 ? "c-red" : "c-green" }, `${fmtQty(it.quantity)} ${it.unit}`),
-      h("button.icon", { title: "increase", "aria-label": `increase ${it.name}`, onclick: () => adjust(it, 1) }, "+"),
+      h("button.icon", { title: "Increase", "aria-label": `Increase ${it.name}`, onclick: () => adjust(it, 1) }, "+"),
       delBtn(`/pantry/${it.id}`, it.name),
-    ], "your pantry is empty — add items, or snap a photo of your groceries"),
+    ], "Your pantry is empty — add items, or snap a photo of your groceries"),
   ));
 }

@@ -8,18 +8,20 @@ import { cal } from "./calendar.js";
 
 export const SLOTS = ["breakfast", "lunch", "dinner"];
 export const SLOT_COLOR = { breakfast: "c-yellow", lunch: "c-cyan", dinner: "c-purple" };
+export const SLOT_LABEL = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner" };
 export const STATUS = ["todo", "in_progress", "done"];
-export const STATUS_LABEL = { todo: "to do", in_progress: "doing", done: "done" };
+export const STATUS_LABEL = { todo: "To do", in_progress: "Doing", done: "Done" };
 export const STATUS_COLOR = { todo: "c-orange", in_progress: "c-cyan", done: "c-green" };
 export const STATUS_GLYPH = { todo: "○", in_progress: "◐", done: "●" };
 
-export const priorityTag = (p) => h("span.tag", { class: { high: "c-red", medium: "c-orange", low: "c-green" }[p] || "c-muted" }, p);
+const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+export const priorityTag = (p) => h("span.tag", { class: { high: "c-red", medium: "c-orange", low: "c-green" }[p] || "c-muted" }, cap(p));
 export const bySlot = (a, b) => SLOTS.indexOf(a.slot) - SLOTS.indexOf(b.slot);
 
 export async function setChore(c, body) {
   try {
     await api(`/chores/${c.id}`, { method: "PATCH", body });
-    if (c.amount && body.status === "done") toast(`paid ${c.title} — logged as an expense`);
+    if (c.amount && body.status === "done") toast(`Paid ${c.title} — logged as an expense`);
     else if (c.amount && body.status && c.status === "done") toast(`${c.title} unpaid — expense removed`);
     render();
   } catch (err) {
@@ -30,7 +32,7 @@ export async function setChore(c, body) {
 export const chipLabel = (c) => (c.amount ? `${c.title} ${moneyShort(c.amount)}` : c.title);
 
 /* ---- recurring ---- */
-export const REPEAT_LABEL = { "": "once", weekly: "weekly", monthly: "monthly", yearly: "yearly" };
+export const REPEAT_LABEL = { "": "Once", weekly: "Weekly", monthly: "Monthly", yearly: "Yearly" };
 
 /**
  * Future occurrences of repeating chores that don't exist yet, for the visible grid.
@@ -55,22 +57,22 @@ export function projected(chores) {
 export const ghostChip = (p) => ({
   label: chipLabel(p.chore),
   cls: `${p.chore.amount ? "c-yellow" : "c-orange"} ghost`,
-  title: `${p.chore.title} — repeats ${p.chore.repeat}, created when the previous one is done`,
+  title: `${p.chore.title} — Repeats ${p.chore.repeat}, created when the previous one is done`,
 });
 
 export function repeatTag(c) {
   if (!c.repeat) return null;
   return h("button.tag.linkish.c-purple", {
-    title: `repeats ${c.repeat} — click to stop repeating`,
+    title: `Repeats ${c.repeat} — click to stop repeating`,
     "aria-label": `${c.title} repeats ${c.repeat}; stop repeating`,
     onclick: (e) => {
       e.stopPropagation();
       if (confirm(`Stop "${c.title}" repeating ${c.repeat}?`)) setChore(c, { repeat: "" });
     },
-  }, `↻ ${c.repeat}`);
+  }, `↻ ${cap(c.repeat)}`);
 }
 
-export const repeatSelect = (opts, dflt) => h("select.w-sm", { name: "repeat", "aria-label": "repeat" },
+export const repeatSelect = (opts, dflt) => h("select.w-sm", { name: "repeat", "aria-label": "Repeat" },
   opts.map((r) => h("option", { value: r, selected: r === dflt }, REPEAT_LABEL[r])));
 
 export function billForm(date) {
@@ -79,18 +81,18 @@ export function billForm(date) {
       e.preventDefault();
       const d = formData(e.target);
       create("/chores", {
-        title: d.title.trim(), description: null, assigned_to: d.assigned_to.trim() || "anyone",
+        title: d.title.trim(), description: null, assigned_to: d.assigned_to.trim() || "Anyone",
         priority: "high", status: "todo", points: 1, due_date: date,
         amount: Number(d.amount), category: d.category, repeat: d.repeat || null,
       }, `bill ${d.title}`);
     },
   },
-    h("input", { name: "title", placeholder: "bill (e.g. electricity)", required: true, autocomplete: "off", "aria-label": "bill" }),
-    h("input.w-sm", { name: "amount", type: "number", step: "0.01", min: "0.01", placeholder: "0.00", required: true, "aria-label": "amount" }),
-    h("select.w-sm", { name: "category", "aria-label": "category" }, CATEGORIES.map((c) => h("option", { value: c, selected: c === "Utilities" }, c.toLowerCase()))),
-    h("input.w-sm", { name: "assigned_to", placeholder: "who pays", "aria-label": "who pays" }),
+    h("input", { name: "title", placeholder: "Bill (e.g. Electricity)", required: true, autocomplete: "off", "aria-label": "Bill" }),
+    h("input.w-sm", { name: "amount", type: "number", step: "0.01", min: "0.01", placeholder: "0.00", required: true, "aria-label": "Amount" }),
+    h("select.w-sm", { name: "category", "aria-label": "Category" }, CATEGORIES.map((c) => h("option", { value: c, selected: c === "Utilities" }, c))),
+    h("input.w-sm", { name: "assigned_to", placeholder: "Who pays", "aria-label": "Who pays" }),
     repeatSelect(["", "monthly", "yearly"], "monthly"),
-    h("button.primary", { type: "submit" }, "add bill"),
+    h("button.primary", { type: "submit" }, "Add bill"),
   );
 }
 
@@ -99,7 +101,7 @@ export function choreRow(c) {
   return [
     h("button.icon.status", {
       class: STATUS_COLOR[c.status],
-      title: `${STATUS_LABEL[c.status]} — click for ${STATUS_LABEL[next]}`,
+      title: `${STATUS_LABEL[c.status]} — Click for ${STATUS_LABEL[next]}`,
       "aria-label": `${c.title} is ${STATUS_LABEL[c.status]}, mark ${STATUS_LABEL[next]}`,
       onclick: () => setChore(c, { status: next }),
     }, STATUS_GLYPH[c.status]),
@@ -107,17 +109,17 @@ export function choreRow(c) {
       h("span.title", { class: c.status === "done" ? "strike" : null }, c.title),
       h("span.meta", ` ${c.assigned_to}${c.amount ? "" : ` · ${c.points} pt${c.points === 1 ? "" : "s"}`}`)),
     repeatTag(c),
-    c.amount ? h("span.tag.c-yellow", { title: c.status === "done" ? "paid — logged as an expense" : "bill" }, `bill ${moneyShort(c.amount)}`) : priorityTag(c.priority),
+    c.amount ? h("span.tag.c-yellow", { title: c.status === "done" ? "Paid — logged as an expense" : "Bill" }, `Bill ${moneyShort(c.amount)}`) : priorityTag(c.priority),
     delBtn(`/chores/${c.id}`, c.title),
   ];
 }
 
-export const mealRow = (m) => [h("span.tag", { class: SLOT_COLOR[m.slot] || "c-muted" }, m.slot), h("span.grow.title", m.title), delBtn(`/meals/${m.id}`, m.title)];
+export const mealRow = (m) => [h("span.tag", { class: SLOT_COLOR[m.slot] || "c-muted" }, SLOT_LABEL[m.slot] || cap(m.slot)), h("span.grow.title", m.title), delBtn(`/meals/${m.id}`, m.title)];
 
 export const expenseRow = (e, linked = 0) => [
   h("span.grow.title", e.title),
-  linked ? h("a.tag.c-green", { href: "#/pantry", title: "items from this purchase in the pantry" }, `${linked} in pantry`) : null,
-  h("span.tag", { class: CAT_COLOR[e.category] || "c-muted" }, e.category.toLowerCase()),
+  linked ? h("a.tag.c-green", { href: "#/pantry", title: "Items from this purchase in the pantry" }, `${linked} in pantry`) : null,
+  h("span.tag", { class: CAT_COLOR[e.category] || "c-muted" }, e.category),
   h("span.num", money(e.amount)),
   delBtn(`/expenses/${e.id}`, e.title),
 ];
@@ -128,18 +130,18 @@ export function choreForm(date) {
       e.preventDefault();
       const d = formData(e.target);
       create("/chores", {
-        title: d.title.trim(), description: null, assigned_to: d.assigned_to.trim() || "anyone",
+        title: d.title.trim(), description: null, assigned_to: d.assigned_to.trim() || "Anyone",
         priority: d.priority, status: "todo", points: Number(d.points) || 1, due_date: date || null,
         repeat: d.repeat || null,
       }, d.title);
     },
   },
-    h("input", { name: "title", placeholder: "chore", required: true, autocomplete: "off", "aria-label": "chore" }),
-    h("input.w-sm", { name: "assigned_to", placeholder: "who", "aria-label": "assigned to" }),
-    h("select.w-sm", { name: "priority", "aria-label": "priority" }, ["low", "medium", "high"].map((p) => h("option", { value: p, selected: p === "medium" }, p))),
-    h("input.w-xs", { name: "points", type: "number", min: "1", value: "1", title: "points", "aria-label": "points" }),
+    h("input", { name: "title", placeholder: "Chore", required: true, autocomplete: "off", "aria-label": "Chore" }),
+    h("input.w-sm", { name: "assigned_to", placeholder: "Who", "aria-label": "Assigned to" }),
+    h("select.w-sm", { name: "priority", "aria-label": "Priority" }, ["low", "medium", "high"].map((p) => h("option", { value: p, selected: p === "medium" }, cap(p)))),
+    h("input.w-xs", { name: "points", type: "number", min: "1", value: "1", title: "Points", "aria-label": "Points" }),
     repeatSelect(["", "weekly", "monthly"], ""),
-    h("button.primary", { type: "submit" }, "add"),
+    h("button.primary", { type: "submit" }, "Add"),
   );
 }
 
@@ -150,16 +152,16 @@ export function mealForm(date, recipes = []) {
       const d = formData(e.target);
       const recipe = recipes.find((r) => String(r.id) === d.recipe_id);
       const title = (d.title || "").trim() || (recipe && recipe.name);
-      if (!title) return toast("enter a meal or pick a recipe", true);
+      if (!title) return toast("Enter a meal or pick a recipe", true);
       create("/meals", { date, slot: d.slot, title, recipe_id: recipe ? recipe.id : null }, title);
     },
   },
-    h("select.w-sm", { name: "slot", "aria-label": "meal slot" }, SLOTS.map((s) => h("option", { value: s, selected: s === "dinner" }, s))),
-    h("input", { name: "title", placeholder: "meal", autocomplete: "off", "aria-label": "meal" }),
-    recipes.length ? h("select", { name: "recipe_id", "aria-label": "recipe" },
-      h("option", { value: "" }, "or a recipe…"),
+    h("select.w-sm", { name: "slot", "aria-label": "Meal slot" }, SLOTS.map((s) => h("option", { value: s, selected: s === "dinner" }, SLOT_LABEL[s]))),
+    h("input", { name: "title", placeholder: "Meal", autocomplete: "off", "aria-label": "Meal" }),
+    recipes.length ? h("select", { name: "recipe_id", "aria-label": "Recipe" },
+      h("option", { value: "" }, "Or a recipe…"),
       recipes.map((r) => h("option", { value: r.id }, r.name))) : null,
-    h("button.primary", { type: "submit" }, "add"),
+    h("button.primary", { type: "submit" }, "Add"),
   );
 }
 
@@ -177,7 +179,7 @@ export function readImage(file, maxSide = 1600) {
       URL.revokeObjectURL(url);
       resolve(c.toDataURL("image/jpeg", 0.85));
     };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("could not read that image")); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Could not read that image")); };
     img.src = url;
   });
 }
@@ -234,33 +236,33 @@ export function pantryReview() {
   const items = p.items;
   const confirmAdd = async () => {
     const chosen = items.filter((i) => i.keep && i.name.trim());
-    if (!chosen.length) return toast("nothing selected", true);
+    if (!chosen.length) return toast("Nothing selected", true);
     try {
       const out = await api("/pantry/batch", {
         method: "POST",
         body: { expense_id: p.expense_id || null, items: chosen.map(({ name, quantity, unit }) => ({ name: name.trim(), quantity: Number(quantity) || 1, unit: unit.trim() || "pcs" })) },
       });
       pendingItems = null;
-      toast(`pantry: ${out.added} added, ${out.topped_up} topped up`);
+      toast(`Pantry: ${out.added} added, ${out.topped_up} topped up`);
       render();
     } catch (err) {
       fail(err);
     }
   };
-  return h("section.review", { "aria-label": "review items for the pantry" },
+  return h("section.review", { "aria-label": "Review items for the pantry" },
     h("div.spread",
-      h("h3", p.expense_id ? `add items from ${p.label} to the pantry?` : "items found in the photo"),
-      h("button.icon", { onclick: () => { pendingItems = null; render(); }, "aria-label": "dismiss" }, "×")),
-    h("p.hint", "edit or untick anything that's wrong; existing items are topped up, not duplicated"),
+      h("h3", p.expense_id ? `Add items from ${p.label} to the pantry?` : "Items found in the photo"),
+      h("button.icon", { onclick: () => { pendingItems = null; render(); }, "aria-label": "Dismiss" }, "×")),
+    h("p.hint", "Edit or untick anything that's wrong; existing items are topped up, not duplicated"),
     h("ul.list", items.map((it) => h("li",
-      h("input", { type: "checkbox", checked: it.keep, "aria-label": `keep ${it.name}`, onchange: (e) => { it.keep = e.target.checked; } }),
-      h("input.grow", { value: it.name, "aria-label": "name", oninput: (e) => { it.name = e.target.value; } }),
-      h("input.w-xs", { type: "number", step: "any", min: "0", value: it.quantity, "aria-label": "quantity", oninput: (e) => { it.quantity = e.target.value; } }),
-      h("input.w-xs", { value: it.unit, "aria-label": "unit", oninput: (e) => { it.unit = e.target.value; } }),
+      h("input", { type: "checkbox", checked: it.keep, "aria-label": `Keep ${it.name}`, onchange: (e) => { it.keep = e.target.checked; } }),
+      h("input.grow", { value: it.name, "aria-label": "Name", oninput: (e) => { it.name = e.target.value; } }),
+      h("input.w-xs", { type: "number", step: "any", min: "0", value: it.quantity, "aria-label": "Quantity", oninput: (e) => { it.quantity = e.target.value; } }),
+      h("input.w-xs", { value: it.unit, "aria-label": "Unit", oninput: (e) => { it.unit = e.target.value; } }),
     ))),
     h("div.scan",
-      h("button.primary", { onclick: confirmAdd }, "add to pantry"),
-      p.expense_id ? h("span.meta", "linked to that expense") : null),
+      h("button.primary", { onclick: confirmAdd }, "Add to pantry"),
+      p.expense_id ? h("span.meta", "Linked to that expense") : null),
   );
 }
 
@@ -276,7 +278,7 @@ export function expenseForm(date, withScan = false) {
       form.dataset.busy = "1";
       try {
         const out = await api("/expenses", { method: "POST", body: { title, amount: Number(d.amount), category: d.category, date: d.date || date } });
-        toast(`added ${title}`);
+        toast(`Added ${title}`);
         if (r && r.items.length) pendingItems = { expense_id: out.id, label: title, items: asPending(r.items) };
         if (r) scannedReceipt = null;
         render();
@@ -287,16 +289,16 @@ export function expenseForm(date, withScan = false) {
       }
     },
   },
-    h("input", { name: "title", placeholder: "what", required: true, autocomplete: "off", "aria-label": "expense", value: r ? r.title : null }),
-    h("input.w-sm", { name: "amount", type: "number", step: "any", min: "0", placeholder: "0.00", required: true, "aria-label": "amount", value: r && r.amount ? r.amount : null }),
-    h("select.w-sm", { name: "category", "aria-label": "category" },
-      CATEGORIES.map((c) => h("option", { value: c, selected: r && r.category === c }, c.toLowerCase()))),
+    h("input", { name: "title", placeholder: "What", required: true, autocomplete: "off", "aria-label": "Expense", value: r ? r.title : null }),
+    h("input.w-sm", { name: "amount", type: "number", step: "any", min: "0", placeholder: "0.00", required: true, "aria-label": "Amount", value: r && r.amount ? r.amount : null }),
+    h("select.w-sm", { name: "category", "aria-label": "Category" },
+      CATEGORIES.map((c) => h("option", { value: c, selected: r && r.category === c }, c))),
     h("input", { name: "date", type: "hidden", value: day }),
-    h("button.primary", { type: "submit" }, "add"),
+    h("button.primary", { type: "submit" }, "Add"),
   );
   if (!withScan) return form;
 
-  const scan = photoButton("scan receipt", "reading receipt", "/expenses/scan-receipt", (out) => {
+  const scan = photoButton("Scan receipt", "Reading receipt", "/expenses/scan-receipt", (out) => {
     scannedReceipt = {
       title: out.title || "",
       amount: out.amount || "",
@@ -304,17 +306,17 @@ export function expenseForm(date, withScan = false) {
       date: /^\d{4}-\d{2}-\d{2}$/.test(out.date || "") ? out.date : null,
       items: out.items || [],
     };
-    toast("receipt read — check it, then add");
+    toast("Receipt read — check it, then add");
     render();
     return "";
   }, "receipt");
 
   const notes = [];
   if (r) {
-    if (r.date && r.date !== date) notes.push(`dated ${fmtDay(r.date)} — saved on that day`);
+    if (r.date && r.date !== date) notes.push(`Dated ${fmtDay(r.date)} — saved on that day`);
     if (r.items.length) notes.push(`${r.items.length} item${r.items.length > 1 ? "s" : ""} can go to the pantry after you add`);
   }
   return h("div", form, scan,
-    r ? h("p.hint", "scanned receipt — check it, then add", notes.length ? ` · ${notes.join(" · ")}` : "", " · ",
-      h("button.link", { type: "button", onclick: () => { scannedReceipt = null; render(); } }, "discard")) : null);
+    r ? h("p.hint", "Scanned receipt — check it, then add", notes.length ? ` · ${notes.join(" · ")}` : "", " · ",
+      h("button.link", { type: "button", onclick: () => { scannedReceipt = null; render(); } }, "Discard")) : null);
 }

@@ -63,7 +63,7 @@ export async function moveItem(kind, id, date) {
     if (kind === "chore") await api(`/chores/${numId}`, { method: "PATCH", body: { due_date: date } });
     else if (kind === "meal") await api(`/meals/${numId}`, { method: "PATCH", body: { date } });
     else return;
-    toast(`moved to ${fmtDay(date)}`);
+    toast(`Moved to ${fmtDay(date)}`);
     render();
   } catch (err) {
     fail(err);
@@ -134,20 +134,20 @@ export function calendar({ chipsFor, onMove, legend }) {
     cells.push(cell);
   }
 
-  const title = first.toLocaleDateString(undefined, { month: "long", year: "numeric" }).toLowerCase();
+  const title = first.toLocaleDateString(undefined, { month: "long", year: "numeric" });
   return h("section.cal",
     h("div.cal-head",
       h("h1", title),
       h("div.cal-nav",
-        h("button.icon", { onclick: () => { shiftMonth(-1); render(); }, "aria-label": "previous month" }, "←"),
-        h("button.icon", { onclick: () => selectDay(today()) }, "today"),
-        h("button.icon", { onclick: () => { shiftMonth(1); render(); }, "aria-label": "next month" }, "→"),
+        h("button.icon", { onclick: () => { shiftMonth(-1); render(); }, "aria-label": "Previous month" }, "←"),
+        h("button.icon", { onclick: () => selectDay(today()) }, "Today"),
+        h("button.icon", { onclick: () => { shiftMonth(1); render(); }, "aria-label": "Next month" }, "→"),
       ),
     ),
-    h("div.cal-grid.dow", { "aria-hidden": "true" }, ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((d) => h("div", d))),
+    h("div.cal-grid.dow", { "aria-hidden": "true" }, ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => h("div", d))),
     h("div.cal-grid", { role: "grid", "aria-label": title }, cells),
     legend ? h("div.legend", legend.map(([label, cls]) => h("span", h("i", { class: cls }), label))) : null,
-    onMove ? h("p.hint", "drag items between days to reschedule · arrow keys move the selection") : null,
+    onMove ? h("p.hint", "Drag items between days to reschedule · Arrow keys move the selection") : null,
   );
 }
 
@@ -155,10 +155,10 @@ export function calendar({ chipsFor, onMove, legend }) {
 export function split(mainKids, panelKids) {
   return h("div.split",
     h("div.main-col", mainKids),
-    h("aside.panel", { "aria-label": `selected day ${fmtDay(cal.sel)}` },
+    h("aside.panel", { "aria-label": `Selected day ${fmtDay(cal.sel)}` },
       h("div.panel-head",
         h("h3", fmtDay(cal.sel)),
-        cal.sel === today() ? h("span.tag.c-pink", "today") : null,
+        cal.sel === today() ? h("span.tag.c-pink", "Today") : null,
       ),
       panelKids,
     ),
