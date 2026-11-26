@@ -55,7 +55,7 @@ Actionable checklist from the security, UX, and architecture audit covering both
   - Use the `path` field already sent in `/api/events` payloads to refresh only the affected resource slice rather than re-fetching the entire database on every change.
 - [x] **Add query filtering / pagination on growing endpoints** (`server/src/routes.rs`)
   - Support date-window queries (e.g. `GET /api/expenses?month=YYYY-MM`, `GET /api/meals?from=...&to=...`) so mobile payloads stay small over years of household data.
-- [ ] **Convert Ollama AI scans into async background jobs** (`server/src/routes.rs:772-785`, `web/app.js:449`)
+- [x] **Convert Ollama AI scans into async background jobs** (`server/src/routes.rs:772-785`, `web/app.js:449`)
   - Change `/expenses/scan-receipt`, `/pantry/scan-photo`, and `/recipes/import` (AI paths) to return `202 Accepted` with a `job_id`, execute Ollama in a background Tokio task, and emit job completion over `/api/events` (or `GET /api/jobs/{id}`).
   - Prevents lost results when a phone screen locks or the user switches tabs during 30–300 s local inference.
 - [ ] **Make Rosie an installable PWA with offline reads** (`web/index.html`, new `manifest.webmanifest` + `sw.js`)

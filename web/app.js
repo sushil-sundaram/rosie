@@ -1,6 +1,7 @@
 import { api, getAuthState, setApiHooks, setAuthState } from "./js/api.js";
 import { consumeFocusSel } from "./js/components/calendar.js";
 import { setDomRender } from "./js/dom.js";
+import { notifyJobEvent } from "./js/jobs.js";
 import { configureRouter, render } from "./js/router.js";
 import { clearCache, invalidateAll, invalidateForPath, setStoreUpdateHook } from "./js/store.js";
 import { createSync } from "./js/sync.js";
@@ -19,6 +20,7 @@ const sync = createSync(
     if (!paths || !paths.length) invalidateAll();
     else paths.forEach(invalidateForPath);
   },
+  (msg) => notifyJobEvent(msg),
 );
 
 setDomRender(render);

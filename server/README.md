@@ -37,18 +37,19 @@ All routes are served under `/api` (for example `GET /api/pantry`). Request and 
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/health` | `{"status":"ok","version"}` after checking the database; 503 if it's unavailable. Used by the container health check |
-| `GET` | `/events` | Server-Sent Events: one `{"by","path"}` message per successful write |
+| `GET` | `/events` | Server-Sent Events: one `{"by","path"}` message per successful write, or `{"type":"job","job_id","kind","status","by"}` when a background AI scan completes |
+| `GET` | `/jobs/{id}` | Poll an async AI job (`{job_id, kind, status, result?, error?}`) |
 | `GET` · `PUT` | `/settings` | `{"currency":"INR","locale":"en-IN"}`; PUT accepts only known keys |
 | **Pantry** | | |
 | `GET` · `POST` | `/pantry` | List / add `{name, quantity, unit, expires_on?}` |
 | `PUT` · `DELETE` | `/pantry/{id}` | Replace / remove an item |
 | `POST` | `/pantry/{id}/adjust` | `{delta}` — relative change, never below 0 |
 | `POST` | `/pantry/batch` | `{items:[…], expense_id?}` — tops up items with the same name+unit, otherwise inserts; links to an expense |
-| `POST` | `/pantry/scan-photo` | `{image_base64}` → `{items:[{name, quantity, unit}]}` |
+| `POST` | `/pantry/scan-photo` | `{image_base64}` → `202 {job_id, kind, status}`; job result is `{items:[{name, quantity, unit}]}` |
 | **Recipes & meals** | | |
 | `GET` · `POST` | `/recipes` | `{name, instructions, servings?, time_minutes?, source_url?, image_url?, ingredients: ["1 cup toor dal", …]}`; POST returns `{id}`. GET returns each ingredient as `{text, name, quantity, unit}` |
 | `PUT` · `DELETE` | `/recipes/{id}` | Replace a recipe and its ingredients / remove it (also unlinks it from planned meals) |
-| `POST` | `/recipes/import` | One of `{url}`, `{text}` or `{image_base64}` → an unsaved draft `{name, servings, time_minutes, source_url, image_url, ingredients, instructions, method}`; `method` is `structured` or `ai` |
+| `POST` | `/recipes/import` | One of `{url}`, `{text}` or `{image_base64}` → `200` draft directly for structured recipe links, or `202 {job_id, kind, status}` for AI extraction (`{name, servings, time_minutes, source_url, image_url, ingredients, instructions, method}`) |
 | `GET` · `POST` | `/meals` | `{date, slot, title, recipe_id?}` — slot is breakfast, lunch or dinner. GET accepts optional `?month=YYYY-MM` or `?from=YYYY-MM-DD&to=YYYY-MM-DD` and `?limit=&offset=` |
 | `PATCH` · `DELETE` | `/meals/{id}` | PATCH `{date}` to reschedule |
 | **Chores & bills** | | |
@@ -57,7 +58,7 @@ All routes are served under `/api` (for example `GET /api/pantry`). Request and 
 | **Expenses & budgets** | | |
 | `GET` · `POST` | `/expenses` | `{title, amount, category, date}`; POST returns `{id}`. GET accepts optional `?month=YYYY-MM` or `?from=YYYY-MM-DD&to=YYYY-MM-DD` and `?limit=&offset=` |
 | `DELETE` | `/expenses/{id}` | Unlinks pantry items bought with it. 409 if it is a paid bill's expense: un-pay the bill instead |
-| `POST` | `/expenses/scan-receipt` | `{image_base64}` → `{title, amount, category, date, items}` |
+| `POST` | `/expenses/scan-receipt` | `{image_base64}` → `202 {job_id, kind, status}`; job result is `{title, amount, category, date, items}` |
 | `GET` | `/budgets` | `[{category, amount}]` — monthly, repeats every month |
 | `PUT` | `/budgets/{category}` | `{amount}`; 0 removes the budget |
 

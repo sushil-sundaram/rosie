@@ -79,7 +79,7 @@ export async function pantryView(root) {
     setPendingItems({ expense_id: null, items: asPending(out.items) });
     render();
     return "";
-  });
+  }, "pantry");
 
   const low = items.filter((i) => i.quantity <= 1);
   // Low items first, then alphabetical.

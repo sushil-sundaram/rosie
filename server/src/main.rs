@@ -1,5 +1,6 @@
 mod auth;
 mod guard;
+mod jobs;
 mod models;
 mod recipes;
 mod routes;
@@ -61,8 +62,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let static_files = ServeDir::new(&web_dir).not_found_service(ServeFile::new(index));
 
     let changes = sync::channel();
+    let job_ctx = jobs::JobContext::new(changes.clone());
     let api = routes::app_router(pool)
         .merge(sync::router(changes.clone()))
+        .merge(jobs::router(job_ctx.store.clone()))
+        .layer(axum::Extension(job_ctx))
         .layer(axum::middleware::from_fn_with_state(changes, sync::announce))
         .merge(auth::router(auth_state.clone()))
         .layer(axum::middleware::from_fn_with_state(auth_state, auth::require_auth));
