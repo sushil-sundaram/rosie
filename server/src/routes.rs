@@ -229,6 +229,22 @@ fn valid_text(s: &str) -> bool {
     !s.trim().is_empty() && s.len() <= 500
 }
 
+const CATEGORIES: &[&str] = &[
+    "Groceries",
+    "Utilities",
+    "Household",
+    "Dining",
+    "Entertainment",
+    "Transportation",
+    "Health",
+    "Other",
+];
+
+fn canonical_category(raw: &str) -> Option<&'static str> {
+    let t = raw.trim();
+    CATEGORIES.iter().copied().find(|c| c.eq_ignore_ascii_case(t))
+}
+
 async fn update_chore(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
@@ -425,6 +441,7 @@ async fn put_settings(
         return (StatusCode::BAD_REQUEST, Json(json!({"error": format!("unknown setting '{k}'")})));
     }
     for (k, v) in &payload {
+        let v = v.trim();
         let ok = match k.as_str() {
             "currency" => v.len() == 3 && v.bytes().all(|b| b.is_ascii_uppercase()),
             _ => (2..=20).contains(&v.len()) && v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'),
@@ -463,26 +480,26 @@ async fn get_budgets(State(pool): State<SqlitePool>) -> impl IntoResponse {
     }
 }
 
-/// Sets a category's monthly budget; an amount of 0 or less removes it.
+/// Sets a category's monthly budget; an amount of 0 removes it.
 async fn put_budget(
     State(pool): State<SqlitePool>,
     Path(category): Path<String>,
     Json(payload): Json<BudgetUpdate>,
 ) -> impl IntoResponse {
-    if !payload.amount.is_finite() || payload.amount >= 1e12 {
-        return bad_request("amount must be a number");
+    if !valid_amount(payload.amount) {
+        return bad_request("amount must be a number of 0 or more");
     }
-    if category.trim().is_empty() || category.len() > 50 {
+    let Some(category) = canonical_category(&category) else {
         return bad_request("invalid category");
-    }
+    };
     let res = if payload.amount > 0.0 {
         sqlx::query("INSERT INTO budgets (category, amount) VALUES (?, ?) ON CONFLICT(category) DO UPDATE SET amount = excluded.amount")
-            .bind(&category)
+            .bind(category)
             .bind(payload.amount)
             .execute(&pool)
             .await
     } else {
-        sqlx::query("DELETE FROM budgets WHERE category = ?").bind(&category).execute(&pool).await
+        sqlx::query("DELETE FROM budgets WHERE category = ?").bind(category).execute(&pool).await
     };
     match res {
         Ok(_) => (StatusCode::OK, Json(json!({"status": "updated"}))),
@@ -590,7 +607,7 @@ async fn add_pantry_item(
     State(pool): State<SqlitePool>,
     Json(payload): Json<PantryItem>,
 ) -> impl IntoResponse {
-    if !valid_text(&payload.name) || !valid_amount(payload.quantity) || payload.unit.len() > 30 {
+    if !valid_text(&payload.name) || !valid_amount(payload.quantity) || payload.unit.trim().len() > 30 {
         return bad_request("an item needs a name and a quantity of 0 or more");
     }
     if payload.expires_on.as_deref().is_some_and(|d| !d.is_empty() && !valid_date(d)) {
@@ -600,7 +617,7 @@ async fn add_pantry_item(
         "INSERT INTO pantry_items (name, quantity, unit, expires_on) VALUES (?, ?, ?, ?)"
     )
     .bind(payload.name.trim())
-    .bind(payload.quantity)
+    .bind(payload.quantity.min(1e9))
     .bind(payload.unit.trim())
     .bind(payload.expires_on.as_deref().filter(|d| valid_date(d)))
     .execute(&pool)
@@ -650,9 +667,16 @@ async fn add_chore(
     if payload.repeat.as_deref().is_some_and(|r| !r.is_empty() && !valid_repeat(r)) {
         return bad_request("repeat must be weekly, monthly or yearly");
     }
-    if payload.amount.is_some_and(|a| !valid_amount(a)) || payload.category.as_deref().is_some_and(|c| c.len() > 50) {
+    if payload.amount.is_some_and(|a| !valid_amount(a)) {
         return bad_request("amount must be 0 or more");
     }
+    let category = match payload.category.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+        Some(c) => match canonical_category(c) {
+            Some(canon) => Some(canon),
+            None => return bad_request("invalid category"),
+        },
+        None => None,
+    };
     if payload.amount.is_some_and(|a| a > 0.0) && payload.status == "done" {
         // Paying is what records the expense; a bill can't start out paid.
         return bad_request("add the bill first, then mark it paid");
@@ -668,9 +692,9 @@ async fn add_chore(
     .bind(payload.points)
     .bind(payload.due_date.as_deref().filter(|d| valid_date(d)))
     .bind(payload.amount.filter(|a| *a > 0.0))
-    .bind(payload.amount.filter(|a| *a > 0.0).map(|_| payload.category.clone().unwrap_or_else(|| "Utilities".into())))
+    .bind(payload.amount.filter(|a| *a > 0.0).map(|_| category.unwrap_or("Utilities")))
     .bind(payload.repeat.as_deref().filter(|r| valid_repeat(r)))
-    .bind(payload.due_date.as_deref().filter(|d| valid_date(d)).and_then(|d| d[8..].parse::<i64>().ok()))
+    .bind(payload.due_date.as_deref().filter(|d| valid_date(d)).map(day_of_date))
     .execute(&pool)
     .await;
 
@@ -709,15 +733,15 @@ async fn add_expense(
     if !valid_date(&payload.date) {
         return bad_request("date must be a real date (YYYY-MM-DD)");
     }
-    if payload.category.trim().is_empty() || payload.category.len() > 50 {
-        return bad_request("an expense needs a category");
-    }
+    let Some(category) = canonical_category(&payload.category) else {
+        return bad_request("invalid expense category");
+    };
     let result = sqlx::query(
         "INSERT INTO expenses (title, amount, category, date) VALUES (?, ?, ?, ?)"
     )
     .bind(payload.title.trim())
     .bind(payload.amount)
-    .bind(payload.category.trim())
+    .bind(category)
     .bind(&payload.date)
     .execute(&pool)
     .await;
@@ -836,21 +860,48 @@ fn parse_items(v: &serde_json::Value) -> Vec<serde_json::Value> {
             items
                 .iter()
                 .filter_map(|it| {
-                    let name = it["name"].as_str()?.trim();
+                    let name: String = it["name"].as_str()?.trim().chars().take(200).collect();
                     if name.is_empty() {
                         return None;
                     }
                     let quantity = it["quantity"].as_f64()
                         .or_else(|| it["quantity"].as_str().and_then(|q| q.trim().parse().ok()))
-                        .filter(|q| *q > 0.0)
+                        .filter(|q| q.is_finite() && *q > 0.0 && *q <= 1e9)
                         .unwrap_or(1.0);
-                    let unit = it["unit"].as_str().map(str::trim).filter(|u| !u.is_empty()).unwrap_or("pcs");
+                    let unit: String = it["unit"]
+                        .as_str()
+                        .map(str::trim)
+                        .filter(|u| !u.is_empty())
+                        .unwrap_or("pcs")
+                        .chars()
+                        .take(30)
+                        .collect();
                     Some(json!({ "name": name, "quantity": quantity, "unit": unit }))
                 })
                 .take(60)
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn normalize_receipt(v: &serde_json::Value) -> serde_json::Value {
+    let title: String = v["title"]
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("Scanned receipt")
+        .chars()
+        .take(200)
+        .collect();
+    let category = v["category"].as_str().and_then(canonical_category).unwrap_or("Other");
+    let date = v["date"].as_str().map(str::trim).filter(|d| valid_date(d)).unwrap_or("");
+    json!({
+        "title": title,
+        "amount": parse_amount(&v["amount"]),
+        "category": category,
+        "date": date,
+        "items": parse_items(&v["items"]),
+    })
 }
 
 async fn scan_receipt(Json(payload): Json<ScanReceiptRequest>) -> impl IntoResponse {
@@ -867,16 +918,7 @@ async fn scan_receipt(Json(payload): Json<ScanReceiptRequest>) -> impl IntoRespo
                   \"items\": [{\"name\": \"Milk\", \"quantity\": 2, \"unit\": \"L\"}]}";
 
     match ollama_vision_json(&payload.image_base64, prompt).await {
-        Ok(v) => {
-            let date = v["date"].as_str().filter(|d| valid_date(d)).unwrap_or("").to_string();
-            (StatusCode::OK, Json(json!({
-                "title": v["title"].as_str().unwrap_or("Scanned receipt"),
-                "amount": parse_amount(&v["amount"]),
-                "category": v["category"].as_str().unwrap_or("Other"),
-                "date": date,
-                "items": parse_items(&v["items"]),
-            })))
-        }
+        Ok(v) => (StatusCode::OK, Json(normalize_receipt(&v))),
         Err(e) => e,
     }
 }
@@ -915,7 +957,8 @@ async fn add_pantry_batch(State(pool): State<SqlitePool>, Json(payload): Json<Pa
             None => None,
         };
         let (mut added, mut topped) = (0, 0);
-        for it in payload.items.iter().filter(|i| valid_text(&i.name) && valid_amount(i.quantity) && i.unit.len() <= 30) {
+        for it in payload.items.iter().filter(|i| valid_text(&i.name) && valid_amount(i.quantity) && i.unit.trim().len() <= 30) {
+            let qty = it.quantity.min(1e9);
             let existing: Option<i64> = sqlx::query_scalar(
                 "SELECT id FROM pantry_items WHERE lower(trim(name)) = lower(trim(?)) AND lower(trim(unit)) = lower(?) LIMIT 1",
             )
@@ -926,8 +969,8 @@ async fn add_pantry_batch(State(pool): State<SqlitePool>, Json(payload): Json<Pa
             let expiry = it.expires_on.as_deref().filter(|d| valid_date(d));
             if let Some(id) = existing {
                 // New stock's expiry date replaces the old one when it is given.
-                sqlx::query("UPDATE pantry_items SET quantity = quantity + ?, expense_id = COALESCE(?, expense_id), expires_on = COALESCE(?, expires_on) WHERE id = ?")
-                    .bind(it.quantity)
+                sqlx::query("UPDATE pantry_items SET quantity = min(1e9, quantity + ?), expense_id = COALESCE(?, expense_id), expires_on = COALESCE(?, expires_on) WHERE id = ?")
+                    .bind(qty)
                     .bind(expense_id)
                     .bind(expiry)
                     .bind(id)
@@ -937,7 +980,7 @@ async fn add_pantry_batch(State(pool): State<SqlitePool>, Json(payload): Json<Pa
             } else {
                 sqlx::query("INSERT INTO pantry_items (name, quantity, unit, expires_on, expense_id) VALUES (?, ?, ?, ?, ?)")
                     .bind(it.name.trim())
-                    .bind(it.quantity)
+                    .bind(qty)
                     .bind(it.unit.trim())
                     .bind(expiry)
                     .bind(expense_id)
@@ -1115,5 +1158,101 @@ mod tests {
             .unwrap();
         assert!(valid_date(next.due_date.as_deref().unwrap_or("")));
         assert!((1..=31).contains(&next.repeat_day.unwrap_or(0)));
+    }
+
+    #[tokio::test]
+    async fn validates_categories_settings_and_bounds() {
+        let pool = test_pool().await;
+
+        // Invalid budget category & negative amount rejected; valid normalized.
+        let res = put_budget(State(pool.clone()), Path("Bogus".into()), Json(BudgetUpdate { amount: 100.0 }))
+            .await
+            .into_response();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        let res = put_budget(State(pool.clone()), Path("Groceries".into()), Json(BudgetUpdate { amount: -1.0 }))
+            .await
+            .into_response();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        let res = put_budget(State(pool.clone()), Path(" groceries ".into()), Json(BudgetUpdate { amount: 500.0 }))
+            .await
+            .into_response();
+        assert_eq!(res.status(), StatusCode::OK);
+        let cat: String = sqlx::query_scalar("SELECT category FROM budgets").fetch_one(&pool).await.unwrap();
+        assert_eq!(cat, "Groceries");
+
+        // Invalid expense/chore categories rejected.
+        let res = add_expense(
+            State(pool.clone()),
+            Json(Expense { id: 0, title: "Coffee".into(), amount: 50.0, category: "Unknown".into(), date: "2026-11-26".into() }),
+        )
+        .await
+        .into_response();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+        let res = add_chore(
+            State(pool.clone()),
+            Json(Chore {
+                id: 0,
+                title: "Power bill".into(),
+                description: None,
+                assigned_to: "Sushil".into(),
+                priority: "high".into(),
+                status: "todo".into(),
+                points: 1,
+                due_date: Some("2026-11-26".into()),
+                amount: Some(500.0),
+                category: Some("InvalidCat".into()),
+                expense_id: None,
+                repeat: None,
+                repeat_day: None,
+                next_id: None,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+        // put_settings trims before checking length/chars.
+        let mut s = HashMap::new();
+        s.insert("currency".into(), " USD ".into());
+        let res = put_settings(State(pool.clone()), Json(s)).await.into_response();
+        assert_eq!(res.status(), StatusCode::OK);
+        let cur: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'currency'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(cur, "USD");
+
+        // Pantry batch clamps topped-up quantity at 1e9.
+        let res = add_pantry_batch(
+            State(pool.clone()),
+            Json(PantryBatch {
+                expense_id: None,
+                items: vec![
+                    PantryItem { id: 0, name: "Sugar".into(), quantity: 9e8, unit: "g".into(), expires_on: None, expense_id: None },
+                    PantryItem { id: 0, name: "Sugar".into(), quantity: 5e8, unit: "g".into(), expires_on: None, expense_id: None },
+                ],
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(res.status(), StatusCode::OK);
+        let qty: f64 = sqlx::query_scalar("SELECT quantity FROM pantry_items WHERE name = 'Sugar'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(qty, 1e9);
+
+        // Receipt normalization enforces known category and caps title length.
+        let long_title = "A".repeat(250);
+        let receipt = normalize_receipt(&json!({
+            "title": long_title,
+            "amount": "₹120.50",
+            "category": "WeirdCategory",
+            "date": "2026-11-26",
+            "items": [{ "name": "Milk", "quantity": 2, "unit": "L" }],
+        }));
+        assert_eq!(receipt["title"].as_str().unwrap().len(), 200);
+        assert_eq!(receipt["category"], "Other");
     }
 }
