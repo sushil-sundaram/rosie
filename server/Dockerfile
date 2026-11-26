@@ -24,7 +24,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && mkdir -p /app/data && chown rosie:rosie /app/data
 
 COPY --from=builder /usr/src/server/target/release/server /app/rosie-server
-COPY web /app/web
+COPY --chown=rosie:rosie web /app/web
+RUN chmod -R u=rwX,go=rX /app/web
 
 ENV DATABASE_URL="sqlite:///app/data/rosie.db" \
     WEB_DIR="/app/web" \
