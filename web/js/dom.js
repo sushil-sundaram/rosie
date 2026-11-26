@@ -31,12 +31,28 @@ export function h(tag, attrs, ...kids) {
 }
 
 let toastTimer;
-export function toast(msg, isErr = false) {
+export function toast(msg, isErr = false, action = null) {
   const t = document.getElementById("toast");
-  t.textContent = msg;
-  t.className = "show" + (isErr ? " err" : "");
+  t.replaceChildren(
+    h("span", msg),
+    action
+      ? h(
+          "button.toast-action",
+          {
+            type: "button",
+            onclick: () => {
+              clearTimeout(toastTimer);
+              t.className = "";
+              action.onclick();
+            },
+          },
+          action.label,
+        )
+      : null,
+  );
+  t.className = ["show", isErr && "err", action && "has-action"].filter(Boolean).join(" ");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (t.className = ""), 2600);
+  toastTimer = setTimeout(() => (t.className = ""), action ? 5000 : 2600);
 }
 
 export const fail = (e) => toast(e.message || String(e), true);

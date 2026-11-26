@@ -16,6 +16,7 @@ import { photoButton } from "../components/domain.js";
 let recipeDraft = null;
 let recipeImporting = false;
 let pendingShare = null;
+let recipeQuery = "";
 const openRecipes = new Set();
 
 export function setSharedImport({ url, text, title }) {
@@ -391,14 +392,46 @@ export async function recipesView(root) {
     cached("pantry", "/pantry"),
   ]);
   const openTarget = consumeRecipeOpen();
-  if (openTarget) openRecipes.add(openTarget);
+  if (openTarget) {
+    openRecipes.add(openTarget);
+    recipeQuery = "";
+  }
+
+  const listWrap = h("div.recipes-list-wrap");
+  const renderRecipes = () => {
+    const q = recipeQuery.trim().toLowerCase();
+    const visible = q
+      ? recipes.filter((r) =>
+          r.name.toLowerCase().includes(q)
+          || (r.ingredients || []).some((i) => (i.text || i.name || "").toLowerCase().includes(q)),
+        )
+      : recipes;
+    const emptyMsg = recipes.length
+      ? "No matching recipes or ingredients"
+      : "No recipes yet — paste a link from any recipe site to start";
+    listWrap.replaceChildren(list(visible, (r) => recipeCard(r, pantry), emptyMsg));
+  };
+
+  const searchInput = h("input.search-input", {
+    type: "search",
+    value: recipeQuery,
+    placeholder: "Search recipes or ingredients…",
+    "aria-label": "Search recipes or ingredients",
+    "data-shortcut-search": "true",
+    oninput: (e) => {
+      recipeQuery = e.target.value;
+      renderRecipes();
+    },
+  });
+  renderRecipes();
 
   root.append(h("div.narrow",
     h("h1", "Recipes"),
     h("p.sub", `${recipes.length} saved`),
     recipeDraft ? recipeEditor() : recipeImport(),
     h("h2", "Recipe box"),
-    list(recipes, (r) => recipeCard(r, pantry), "No recipes yet — paste a link from any recipe site to start"),
+    recipes.length ? h("div.filter-bar", searchInput) : null,
+    listWrap,
   ));
 
   if (openTarget) {

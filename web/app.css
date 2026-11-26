@@ -196,9 +196,15 @@ details[open] summary .title { color: var(--purple); }
   background: var(--bg-dark); border: 1px solid var(--line); border-radius: 6px;
   padding: 8px 14px; font: 13px var(--mono); opacity: 0; pointer-events: none;
   transition: opacity .2s, transform .2s; max-width: calc(100% - 32px);
+  display: inline-flex; align-items: center; gap: 10px;
 }
 #toast.show { opacity: 1; transform: translateX(-50%); }
+#toast.show.has-action { pointer-events: auto; }
 #toast.err { color: var(--red); border-color: var(--red); }
+.toast-action {
+  border: 1px solid var(--purple); background: transparent; color: var(--purple);
+  font: 600 12px var(--mono); padding: 2px 8px; border-radius: 5px;
+}
 
 .spinner { color: var(--muted); font-family: var(--mono); }
 .spinner::after { content: "…"; animation: blink 1s steps(2) infinite; }
@@ -431,6 +437,13 @@ a.meal-link:hover { color: var(--cyan); text-decoration: underline; }
 .cook-step-num { font: 600 16px var(--mono); color: var(--purple); flex: none; padding-top: 2px; }
 .cook-check.done, .cook-step.done { opacity: .5; text-decoration: line-through; background: var(--bg-dark); }
 .cook-check input, .cook-step input { flex: none; margin-top: 3px; accent-color: var(--green); }
+
+/* ---------- search, filters, member chips & bills board ---------- */
+.filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 8px 0 12px; }
+.search-input { flex: 1 1 200px; }
+.member-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.board.bills-board { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 640px) { .board.bills-board { grid-template-columns: 1fr; } }
 
 /* ---------- modals & shortcuts ---------- */
 .modal-backdrop {

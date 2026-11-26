@@ -7,7 +7,7 @@ import { cached } from "../store.js";
 import { cal, calendar, gridRange, inMonth, monthKey, moveItem, split } from "../components/calendar.js";
 import {
   billForm, chipLabel, editBtn, expenseForm, expenseRow, ghostChip,
-  moveBtn, openChoreEditModal, pantryReview, projected, repeatTag, setChore,
+  moveBtn, openChoreEditModal, pantryReview, payBillBtn, projected, repeatTag, syncMembers,
 } from "../components/domain.js";
 
 let expenseAdd = "expense";
@@ -34,6 +34,7 @@ export async function expensesView(root) {
   const day = expenses.filter((e) => e.date === cal.sel);
 
   const bills = chores.filter((c) => c.amount);
+  syncMembers(chores);
   const unpaid = bills.filter((c) => c.status !== "done").sort((a, b) => (a.due_date || "9").localeCompare(b.due_date || "9"));
   const billGhosts = projected(bills);
   const stillDue = unpaid.filter((c) => inMonth(c.due_date)).reduce((s, c) => s + c.amount, 0)
@@ -141,7 +142,7 @@ export async function expensesView(root) {
         h("span.num", money(c.amount)),
         moveBtn("chore", c.id, c.title, c.due_date),
         editBtn(c.title, () => openChoreEditModal(c)),
-        h("button", { type: "button", onclick: () => setChore(c, { status: "done" }) }, "Pay"),
+        payBillBtn(c),
         delBtn(`/chores/${c.id}`, c.title),
       ], "No bills due"),
     ],
@@ -152,7 +153,7 @@ export async function expensesView(root) {
         h("span.grow.title", c.title), h("span.num", money(c.amount)),
         moveBtn("chore", c.id, c.title, c.due_date),
         editBtn(c.title, () => openChoreEditModal(c)),
-        h("button", { type: "button", onclick: () => setChore(c, { status: "done" }) }, "Pay"),
+        payBillBtn(c),
       ])) : null,
       h("h2", "Add"),
       segmented([["expense", "Expense"], ["bill", "Bill to pay"]], expenseAdd, (k) => { expenseAdd = k; render(); }, "Add type"),
