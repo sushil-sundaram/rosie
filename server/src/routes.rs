@@ -65,7 +65,7 @@ async fn update_pantry_item(
     Path(id): Path<i64>,
     Json(payload): Json<PantryItem>,
 ) -> impl IntoResponse {
-    if !valid_text(&payload.name) || !valid_amount(payload.quantity) {
+    if !valid_text(&payload.name) || !valid_amount(payload.quantity) || payload.unit.trim().len() > 30 {
         return bad_request("an item needs a name and a quantity of 0 or more");
     }
     let expiry = payload.expires_on.as_deref().map(str::trim);
@@ -74,8 +74,8 @@ async fn update_pantry_item(
     }
     // Missing expires_on keeps the current one; "" clears it.
     match sqlx::query(
-        "UPDATE pantry_items SET name = ?, quantity = ?, unit = ?, \
-         expires_on = CASE WHEN ?1 IS NULL THEN expires_on WHEN ?1 = '' THEN NULL ELSE ?1 END WHERE id = ?",
+        "UPDATE pantry_items SET name = ?1, quantity = ?2, unit = ?3, \
+         expires_on = CASE WHEN ?4 IS NULL THEN expires_on WHEN ?4 = '' THEN NULL ELSE ?4 END WHERE id = ?5",
     )
         .bind(payload.name.trim())
         .bind(payload.quantity)
@@ -87,7 +87,10 @@ async fn update_pantry_item(
     {
         Ok(r) if r.rows_affected() == 0 => (StatusCode::NOT_FOUND, Json(json!({"error": "Already removed or changed by someone else"}))),
         Ok(_) => (StatusCode::OK, Json(json!({"status": "updated"}))),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to update pantry item"}))),
+        Err(e) => {
+            tracing::error!("update pantry item {id}: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to update pantry item"})))
+        }
     }
 }
 
@@ -968,5 +971,102 @@ mod tests {
         assert_eq!(parse_amount(&json!(15.755)), 15.76);
         assert_eq!(parse_amount(&json!(-5)), 0.0);
         assert_eq!(parse_amount(&json!("free")), 0.0);
+    }
+
+    async fn test_pool() -> SqlitePool {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+        sqlx::migrate!("./migrations").run(&pool).await.expect("migrations");
+        pool
+    }
+
+    #[tokio::test]
+    async fn update_pantry_item_updates_fields_and_expiry() {
+        let pool = test_pool().await;
+        let id = sqlx::query("INSERT INTO pantry_items (name, quantity, unit, expires_on) VALUES ('Milk', 2.0, 'L', '2026-12-01')")
+            .execute(&pool)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+
+        // Missing expires_on keeps existing expiry date.
+        let res = update_pantry_item(
+            State(pool.clone()),
+            Path(id),
+            Json(PantryItem {
+                id: 0,
+                name: " Whole Milk ".into(),
+                quantity: 3.0,
+                unit: " L ".into(),
+                expires_on: None,
+                expense_id: None,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(res.status(), StatusCode::OK);
+        let row: PantryItem = sqlx::query_as("SELECT * FROM pantry_items WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!(row.name, "Whole Milk");
+        assert_eq!(row.quantity, 3.0);
+        assert_eq!(row.unit, "L");
+        assert_eq!(row.expires_on.as_deref(), Some("2026-12-01"));
+
+        // Setting a new expiry date updates it.
+        let res = update_pantry_item(
+            State(pool.clone()),
+            Path(id),
+            Json(PantryItem {
+                id: 0,
+                name: "Whole Milk".into(),
+                quantity: 1.5,
+                unit: "L".into(),
+                expires_on: Some("2026-12-10".into()),
+                expense_id: None,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(res.status(), StatusCode::OK);
+        let row: PantryItem = sqlx::query_as("SELECT * FROM pantry_items WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!(row.expires_on.as_deref(), Some("2026-12-10"));
+
+        // Empty string clears expires_on.
+        let res = update_pantry_item(
+            State(pool.clone()),
+            Path(id),
+            Json(PantryItem {
+                id: 0,
+                name: "Whole Milk".into(),
+                quantity: 1.5,
+                unit: "L".into(),
+                expires_on: Some("".into()),
+                expense_id: None,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(res.status(), StatusCode::OK);
+        let row: PantryItem = sqlx::query_as("SELECT * FROM pantry_items WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!(row.expires_on, None);
+
+        // Missing id returns 404.
+        let res = update_pantry_item(
+            State(pool),
+            Path(9999),
+            Json(PantryItem {
+                id: 0,
+                name: "Missing".into(),
+                quantity: 1.0,
+                unit: "pcs".into(),
+                expires_on: None,
+                expense_id: None,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
 }
