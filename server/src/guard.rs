@@ -324,4 +324,69 @@ mod tests {
         assert_eq!(res.status(), StatusCode::MISDIRECTED_REQUEST);
         assert!(res.headers().contains_key(header::X_FRAME_OPTIONS));
     }
+
+    #[tokio::test]
+    async fn guard_referer_forwarded_proto_and_ipv6() {
+        // Referer fallback without Origin succeeds when same-origin, rejects when cross-origin.
+        let ok_ref = call(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/write")
+                .header(header::HOST, "192.168.1.19:80")
+                .header(header::REFERER, "http://192.168.1.19/chores")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(ok_ref.status(), StatusCode::OK);
+
+        let bad_ref = call(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/write")
+                .header(header::HOST, "192.168.1.19:3000")
+                .header(header::REFERER, "http://evil.local/chores")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(bad_ref.status(), StatusCode::FORBIDDEN);
+
+        // Loopback reverse proxy X-Forwarded-Proto: https trusts https Origin (stripping :443).
+        let mut req = Request::builder()
+            .method(Method::POST)
+            .uri("/write")
+            .header(header::HOST, "rosie.local")
+            .header(header::ORIGIN, "https://rosie.local:443")
+            .header("x-forwarded-proto", "https")
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut().insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 51234))));
+        assert_eq!(call(req).await.status(), StatusCode::OK);
+
+        // Non-loopback client cannot spoof X-Forwarded-Proto: https.
+        let mut spoof = Request::builder()
+            .method(Method::POST)
+            .uri("/write")
+            .header(header::HOST, "rosie.local")
+            .header(header::ORIGIN, "https://rosie.local")
+            .header("x-forwarded-proto", "https")
+            .body(Body::empty())
+            .unwrap();
+        spoof.extensions_mut().insert(ConnectInfo(SocketAddr::from(([192, 168, 1, 50], 51234))));
+        assert_eq!(call(spoof).await.status(), StatusCode::FORBIDDEN);
+
+        // IPv6 bracketed host matches bracketed Origin.
+        let v6 = call(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/write")
+                .header(header::HOST, "[::1]:3000")
+                .header(header::ORIGIN, "http://[::1]:3000")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(v6.status(), StatusCode::OK);
+    }
 }
