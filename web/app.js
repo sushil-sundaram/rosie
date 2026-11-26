@@ -175,8 +175,11 @@ function calendar({ chipsFor, onMove, legend }) {
         e.preventDefault();
         cell.classList.remove("drop");
         try {
-          const { kind, id, from } = JSON.parse(e.dataTransfer.getData("text/plain"));
-          if (from !== ds) onMove(kind, id, ds);
+          const data = JSON.parse(e.dataTransfer.getData("text/plain"));
+          const id = data && Number(data.id);
+          if (data && (data.kind === "chore" || data.kind === "meal") && Number.isInteger(id) && id > 0 && data.from !== ds) {
+            onMove(data.kind, id, ds);
+          }
         } catch { /* not ours */ }
       } : null,
     },
@@ -251,9 +254,11 @@ const bySlot = (a, b) => SLOTS.indexOf(a.slot) - SLOTS.indexOf(b.slot);
 
 /** Drop handler shared by every calendar: reschedule a chore, meal or pantry expiry. */
 async function moveItem(kind, id, date) {
+  const numId = Number(id);
+  if (!Number.isInteger(numId) || numId <= 0) return;
   try {
-    if (kind === "chore") await api(`/chores/${id}`, { method: "PATCH", body: { due_date: date } });
-    else if (kind === "meal") await api(`/meals/${id}`, { method: "PATCH", body: { date } });
+    if (kind === "chore") await api(`/chores/${numId}`, { method: "PATCH", body: { due_date: date } });
+    else if (kind === "meal") await api(`/meals/${numId}`, { method: "PATCH", body: { date } });
     else return;
     toast(`moved to ${fmtDay(date)}`);
     render();
