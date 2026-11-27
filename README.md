@@ -31,7 +31,7 @@ Rosie is a self-hosted household management application for planning meals, trac
 | **Recipes** | Recipe collection with ingredients, steps, servings, time and photo. Import from a recipe website link, a photo of a cookbook page or handwritten card, or pasted text; every import is shown for review before it is saved. |
 | **Settings** | Household currency (shared across devices; Indian rupee by default) and per-device dark, light or system theme. |
 
-**Multi-user by default.** All devices read and write the same database. Changes are pushed to every open session in real time, and simultaneous changes such as stock adjustments and bill payments are applied safely (see [Architecture](#architecture)). Edits to the same recipe or pantry item are last-write-wins.
+**Multi-user by default.** All devices read and write the same database. Changes are pushed to every open session in real time, and simultaneous changes such as stock adjustments and bill payments are applied safely (see [Architecture](#architecture)). If two people edit the same recipe, pantry item or expense at once, the second to save is told and can keep their version or load the other one, instead of silently overwriting it.
 
 **Local AI.** Receipt, pantry-photo and recipe recognition use a model served by [Ollama](https://ollama.com) on the host. Results are always presented for review before they are saved.
 
@@ -132,7 +132,8 @@ The whole household's data is the file `data/rosie.db`. Back it up while Rosie i
 
 - **Single server, single database.** One Axum process owns one SQLite database. Every client works against the same data, so no client-side synchronisation or conflict resolution is required.
 - **Real-time updates.** Each successful write is published on `GET /api/events` using Server-Sent Events. Clients refresh on notification; a client with unsaved form input defers the refresh and indicates that updates are pending.
-- **Concurrency safety.** Quantity changes are applied as relative deltas, and bill payment and recurrence run inside write-locked transactions, preventing lost updates and duplicate records under concurrent use.
+- **Concurrency safety.** Quantity changes are applied as relative deltas, and bill payment and recurrence run inside write-locked transactions, preventing lost updates and duplicate records under concurrent use. Recipes, pantry items and expenses carry a version number; an edit made from an out-of-date screen is refused (HTTP 409) rather than overwriting a newer change.
+- **Database rules.** The SQLite schema enforces the data rules itself: strict column types, real calendar dates, no negative amounts or quantities, fixed sets for status, priority, meal slot and repeat, and foreign keys (deleting a recipe deletes its ingredients; deleting an expense or chore clears links to it).
 - **Web client.** A dependency-free single-page application (HTML, CSS and JavaScript, no build step) served by the same process. Styling follows the [Dracula](https://draculatheme.com) palette in dark mode and its Alucard counterpart in light mode.
 
 Further detail: [server reference](server/README.md) and [design specification](docs/designs/rosie_system_architecture.md).

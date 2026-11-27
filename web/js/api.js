@@ -20,6 +20,9 @@ export function setApiHooks({ authLost, notFoundWrite, mutation }) {
   if (mutation) onMutation = mutation;
 }
 
+/** The row as it is now, when a save failed because someone else changed it first (409). */
+export const conflictCurrent = (err) => (err && err.status === 409 && err.data && err.data.current) || null;
+
 export async function api(path, opts = {}) {
   const res = await fetch(API + path, {
     headers: { "Content-Type": "application/json", "X-Client-Id": CLIENT_ID },
@@ -42,7 +45,12 @@ export async function api(path, opts = {}) {
       onMutation(path);
       setTimeout(() => onNotFoundWrite(path), 0);
     }
-    throw new Error((data && (data.error || data.message)) || `HTTP ${res.status}`);
+    // Someone else changed it first: cached copies are stale too.
+    if (res.status === 409) onMutation(path);
+    const err = new Error((data && (data.error || data.message)) || `HTTP ${res.status}`);
+    err.status = res.status;
+    err.data = data;
+    throw err;
   }
   if (opts.method && opts.method !== "GET" && opts.method !== "HEAD") {
     onMutation(path);

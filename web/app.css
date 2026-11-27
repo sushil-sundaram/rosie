@@ -500,3 +500,8 @@ kbd {
     padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   }
 }
+
+/* Edit conflict: someone else saved first */
+.conflict { border: 1px solid var(--orange); border-radius: 8px; padding: 10px 12px; background: var(--bg-dark); }
+.conflict p { margin: 0 0 8px; font-size: 14px; }
+.conflict strong { color: var(--orange); }

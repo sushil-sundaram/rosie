@@ -63,7 +63,7 @@ All endpoints below are served under `/api`. The full reference is in [`server/R
 ### 3.2 Pantry
 - **Endpoints**: `GET/POST /pantry`, `PUT/DELETE /pantry/{id}`, `POST /pantry/{id}/adjust`, `POST /pantry/batch`, `POST /pantry/scan-photo`
 - **Model**: `id`, `name`, `quantity`, `unit`, `expires_on?`, `expense_id?`
-- **Invariants**: quantity changes are relative and never negative; batch additions merge items with the same name and unit.
+- **Invariants**: quantity changes are relative and never negative; batch additions merge items with the same name and unit. Enforced in the schema as well as the API (STRICT tables, CHECK constraints, foreign keys; schema v2).
 
 ### 3.3 Meals & Recipes
 - **Endpoints**: `GET/POST /meals`, `PATCH/DELETE /meals/{id}`, `GET/POST /recipes`, `PUT/DELETE /recipes/{id}`, `POST /recipes/import`
@@ -109,6 +109,7 @@ All endpoints below are served under `/api`. The full reference is in [`server/R
 - Every successful write is announced on `GET /api/events` (Server-Sent Events) with the originating client ID.
 - Clients ignore their own announcements and refresh on others. A client with unsaved form input defers the refresh and shows that updates are pending.
 - Write paths that read before writing (bill payment, recurrence, pantry batches) use `BEGIN IMMEDIATE` transactions.
+- Pantry items, recipes and expenses carry a `version`. Edits send the version they started from; a mismatch returns 409 with the current row, and the client offers "keep mine" (resend against the new version) or "use theirs". Nothing is overwritten silently.
 
 ---
 

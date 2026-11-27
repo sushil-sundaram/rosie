@@ -197,7 +197,7 @@ pub async fn migrate_external_images(pool: &SqlitePool) {
     let dir = image_dir();
     for (id, url) in rows {
         let cached = resolve_image_url(&Some(url), &dir).await;
-        let _ = sqlx::query("UPDATE recipes SET image_url = ? WHERE id = ?")
+        let _ = sqlx::query("UPDATE recipes SET image_url = ?, version = version + 1 WHERE id = ?")
             .bind(cached)
             .bind(id)
             .execute(pool)
@@ -223,6 +223,10 @@ pub struct RecipeInput {
     /// One ingredient per entry, as written; parsed on save.
     #[serde(default)]
     pub ingredients: Vec<String>,
+    /// The version the editor started from; a newer one in the database means
+    /// someone else saved in the meantime (409).
+    #[serde(default)]
+    pub version: Option<i64>,
 }
 
 /// Only public web links are stored: a saved link can never run script when
@@ -242,7 +246,7 @@ fn non_empty(s: &Option<String>) -> Option<String> {
 
 pub async fn get_recipes(State(pool): State<SqlitePool>) -> impl IntoResponse {
     let recipes = sqlx::query_as::<_, Recipe>(
-        "SELECT id, name, instructions, servings, time_minutes, source_url, image_url FROM recipes ORDER BY name COLLATE NOCASE",
+        "SELECT id, name, instructions, servings, time_minutes, source_url, image_url, version FROM recipes ORDER BY name COLLATE NOCASE",
     )
     .fetch_all(&pool)
     .await;
@@ -281,33 +285,46 @@ fn fmt_qty(q: f64) -> String {
 }
 
 /// Inserts (id = None) or replaces a recipe and its ingredient list in one transaction.
+/// What happened to an edit of an existing recipe.
+enum Saved {
+    /// Saved: its id, new version, and the image it replaced.
+    Ok(i64, i64, Option<String>),
+    Missing,
+    /// Someone else saved first; nothing was written.
+    Conflict,
+}
+
 async fn save_recipe(
     pool: &SqlitePool,
     id: Option<i64>,
     r: &RecipeInput,
     image_url: Option<&str>,
-) -> Result<(Option<i64>, Option<String>), sqlx::Error> {
+) -> Result<Saved, sqlx::Error> {
     let name = r.name.trim();
     let time = r.time_minutes.filter(|t| *t > 0);
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     let mut old_img = None;
     let id = match id {
         Some(id) => {
-            old_img = sqlx::query_scalar::<_, Option<String>>("SELECT image_url FROM recipes WHERE id = ?")
+            let Some((img, version)) = sqlx::query_as::<_, (Option<String>, i64)>("SELECT image_url, version FROM recipes WHERE id = ?")
                 .bind(id)
                 .fetch_optional(&mut *tx)
                 .await?
-                .flatten();
-            let res = sqlx::query(
-                "UPDATE recipes SET name = ?, instructions = ?, servings = ?, time_minutes = ?, source_url = ?, image_url = ? WHERE id = ?",
+            else {
+                return Ok(Saved::Missing);
+            };
+            if r.version.is_some_and(|v| v != version) {
+                return Ok(Saved::Conflict);
+            }
+            old_img = img;
+            sqlx::query(
+                "UPDATE recipes SET name = ?, instructions = ?, servings = ?, time_minutes = ?, source_url = ?, image_url = ?, \
+                 version = version + 1 WHERE id = ?",
             )
             .bind(name).bind(r.instructions.trim()).bind(non_empty(&r.servings)).bind(time)
             .bind(web_link(&r.source_url)).bind(image_url).bind(id)
             .execute(&mut *tx)
             .await?;
-            if res.rows_affected() == 0 {
-                return Ok((None, None));
-            }
             sqlx::query("DELETE FROM recipe_ingredients WHERE recipe_id = ?").bind(id).execute(&mut *tx).await?;
             id
         }
@@ -328,8 +345,29 @@ async fn save_recipe(
             .execute(&mut *tx)
             .await?;
     }
+    let version: i64 = sqlx::query_scalar("SELECT version FROM recipes WHERE id = ?").bind(id).fetch_one(&mut *tx).await?;
     tx.commit().await?;
-    Ok((Some(id), old_img))
+    Ok(Saved::Ok(id, version, old_img))
+}
+
+/// One recipe with its ingredients, as GET /recipes returns it.
+async fn load_recipe(pool: &SqlitePool, id: i64) -> Result<Option<Recipe>, sqlx::Error> {
+    let Some(mut recipe) = sqlx::query_as::<_, Recipe>(
+        "SELECT id, name, instructions, servings, time_minutes, source_url, image_url, version FROM recipes WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?
+    else {
+        return Ok(None);
+    };
+    recipe.ingredients = sqlx::query_as::<_, RecipeIngredient>(
+        "SELECT recipe_id, text, name, quantity, unit FROM recipe_ingredients WHERE recipe_id = ? ORDER BY position, id",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await?;
+    Ok(Some(recipe))
 }
 
 const MAX_LINE: usize = 500;
@@ -365,7 +403,8 @@ pub async fn add_recipe(State(pool): State<SqlitePool>, Json(payload): Json<Reci
     }
     let image = resolve_image_url(&payload.image_url, &image_dir()).await;
     match save_recipe(&pool, None, &payload, image.as_deref()).await {
-        Ok((id, _)) => (StatusCode::CREATED, Json(json!({ "status": "created", "id": id }))),
+        Ok(Saved::Ok(id, version, _)) => (StatusCode::CREATED, Json(json!({ "status": "created", "id": id, "version": version }))),
+        Ok(_) => err(StatusCode::INTERNAL_SERVER_ERROR, "Failed to insert recipe"),
         Err(e) => {
             tracing::error!("insert recipe: {e}");
             err(StatusCode::INTERNAL_SERVER_ERROR, "Failed to insert recipe")
@@ -384,13 +423,23 @@ pub async fn update_recipe(
     let dir = image_dir();
     let image = resolve_image_url(&payload.image_url, &dir).await;
     match save_recipe(&pool, Some(id), &payload, image.as_deref()).await {
-        Ok((Some(_), old_img)) => {
+        Ok(Saved::Ok(_, version, old_img)) => {
             if old_img.as_deref() != image.as_deref() {
                 remove_orphan_image(&pool, old_img, &dir).await;
             }
-            (StatusCode::OK, Json(json!({ "status": "updated", "id": id })))
+            (StatusCode::OK, Json(json!({ "status": "updated", "id": id, "version": version })))
         }
-        Ok((None, _)) => err(StatusCode::NOT_FOUND, "Recipe not found"),
+        Ok(Saved::Missing) => err(StatusCode::NOT_FOUND, "Recipe not found"),
+        Ok(Saved::Conflict) => {
+            // The image cached for this attempt may now be unused.
+            if image.is_some() {
+                remove_orphan_image(&pool, image.clone(), &dir).await;
+            }
+            match load_recipe(&pool, id).await {
+                Ok(Some(current)) => crate::routes::conflict(json!(current)),
+                _ => err(StatusCode::NOT_FOUND, "Recipe not found"),
+            }
+        }
         Err(e) => {
             tracing::error!("update recipe: {e}");
             err(StatusCode::INTERNAL_SERVER_ERROR, "Failed to update recipe")

@@ -1,6 +1,6 @@
-import { api } from "../api.js";
+import { api, conflictCurrent } from "../api.js";
 import { addDays, fmtDay, parseISO, today } from "../dates.js";
-import { delBtn, fail, formData, h, list, segmented, toast } from "../dom.js";
+import { delBtn, fail, formData, h, list, segmented, showConflict, toast } from "../dom.js";
 import { fmtQty, money, moneyShort } from "../money.js";
 import { defaultLowThreshold, isPantryLow } from "../pantry_match.js";
 import { render } from "../router.js";
@@ -30,31 +30,42 @@ export async function pantryView(root) {
   };
 
   const openEditModal = (it) => {
+    // The version this form was opened from; a save only applies to it.
+    let version = it.version ?? null;
+    const save = async (target) => {
+      const d = formData(target);
+      const name = d.name.trim();
+      if (!name) return toast("Item name is required", true);
+      try {
+        await api(`/pantry/${it.id}`, {
+          method: "PUT",
+          body: {
+            name,
+            quantity: Number(d.quantity) || 0,
+            unit: d.unit.trim() || "pcs",
+            expires_on: d.expires_on || "",
+            low_threshold: d.low_threshold !== "" ? Number(d.low_threshold) : null,
+            version,
+          },
+        });
+        close();
+        toast(`Saved ${name}`);
+        render();
+      } catch (err) {
+        const now = conflictCurrent(err);
+        if (!now) return fail(err);
+        showConflict(form, `It's now ${now.name}, ${fmtQty(now.quantity)} ${now.unit}${now.expires_on ? `, expires ${now.expires_on}` : ""}.`, [
+          ["Keep mine", () => { version = now.version; save(form); }, true],
+          ["Use theirs", () => { close(); render(); }],
+        ]);
+      }
+    };
     const form = h(
       "form.stack",
       {
-        onsubmit: async (e) => {
+        onsubmit: (e) => {
           e.preventDefault();
-          const d = formData(e.target);
-          const name = d.name.trim();
-          if (!name) return toast("Item name is required", true);
-          try {
-            await api(`/pantry/${it.id}`, {
-              method: "PUT",
-              body: {
-                name,
-                quantity: Number(d.quantity) || 0,
-                unit: d.unit.trim() || "pcs",
-                expires_on: d.expires_on || "",
-                low_threshold: d.low_threshold !== "" ? Number(d.low_threshold) : null,
-              },
-            });
-            close();
-            toast(`Saved ${name}`);
-            render();
-          } catch (err) {
-            fail(err);
-          }
+          save(e.target);
         },
       },
       h("input", { name: "name", value: it.name, placeholder: "Item", required: true, "aria-label": "Item" }),
