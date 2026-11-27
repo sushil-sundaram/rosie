@@ -98,6 +98,21 @@ function findPantryMatch(ingName, pantry) {
   return bestScore >= 40 ? best : null;
 }
 
+/** "Salt to taste" -> "Salt": the words a shopping list doesn't need. */
+export function groceryName(raw) {
+  return String(raw || "")
+    .replace(/\b(to taste|as needed|as required|as per taste|for garnish(ing)?|optional|if needed)\b/gi, "")
+    .replace(/\s*[,(]\s*$/, "")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
+/**
+ * What to buy so the pantry covers these ingredients: missing ones in the
+ * recipe's amount, partly-stocked ones as the shortfall in the pantry's unit.
+ * Ingredients may carry `source` (the recipe name), passed through for notes.
+ */
 export function matchRecipePantry(ingredients = [], pantry = []) {
   const matches = [];
   const deductMap = new Map();
@@ -112,11 +127,14 @@ export function matchRecipePantry(ingredients = [], pantry = []) {
 
     if (!pantryItem || Number(pantryItem.quantity) <= 0) {
       matches.push({ ing, pantryItem, status: "missing", deductQty: 0 });
-      if (queryName.trim()) {
+      const name = groceryName(ing.name || queryName);
+      if (name) {
         missingItems.push({
-          name: (ing.name || queryName).trim(),
-          quantity: needQty > 0 ? needQty : 1,
-          unit: needUnit || "pcs",
+          name,
+          // 0 = "some": no amount was given ("salt to taste").
+          quantity: needQty > 0 ? needQty : 0,
+          unit: needQty > 0 ? needUnit : "",
+          source: ing.source || null,
         });
       }
       continue;
@@ -162,6 +180,9 @@ export function matchRecipePantry(ingredients = [], pantry = []) {
         deductMap.set(pantryItem.id, prev);
       }
       matches.push({ ing, pantryItem, status: "low", deductQty: take });
+      // Buy the difference, named and measured like the pantry item so it tops it up.
+      const short = Math.round((needInPantry - take) * 1000) / 1000;
+      if (short > 0) missingItems.push({ name: pantryItem.name, quantity: short, unit: pantryItem.unit, source: ing.source || null });
     }
   }
 

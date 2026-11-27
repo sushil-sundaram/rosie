@@ -28,6 +28,7 @@ Rosie is a self-hosted household management application for planning meals, trac
 | **Expenses** | Daily spend calendar, monthly budgets per category with remaining-budget pacing, bills payable, and receipt scanning. |
 | **Bills** | Bills are scheduled as chores on their due date. Marking a bill paid records it as an expense; reversing the payment removes that expense. Monthly and yearly bills generate the next occurrence on payment and show upcoming occurrences on the calendar. |
 | **Pantry** | Inventory with low-stock and expiry indicators, item entry from a photograph, and links from purchased items to the originating expense. |
+| **Groceries** | Shopping list filled from a recipe, from the next 7 days of planned meals, or from low pantry stock, adding only what the pantry doesn't already cover (including the shortfall when there's some but not enough). The same item from several recipes is combined; adding a recipe twice doesn't double it. Tick items into the cart, then put them in the pantry in one tap; share or copy the list for whoever is at the shop. |
 | **Recipes** | Recipe collection with ingredients, steps, servings, time and photo. Import from a recipe website link, a photo of a cookbook page or handwritten card, or pasted text; every import is shown for review before it is saved. |
 | **Settings** | Household currency (shared across devices; Indian rupee by default) and per-device dark, light or system theme. |
 

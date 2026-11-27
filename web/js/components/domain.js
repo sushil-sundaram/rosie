@@ -1,6 +1,6 @@
 import { api, conflictCurrent } from "../api.js";
 import { addDays, fmtDay, iso, nextDate, today } from "../dates.js";
-import { create, delBtn, fail, formData, h, store, toast, showConflict } from "../dom.js";
+import { create, delBtn, fail, formData, h, store, toast, showConflict, rowMenu } from "../dom.js";
 import { isJobPending, submitAiJob } from "../jobs.js";
 import { CATEGORIES, CAT_COLOR, CHORE_CATEGORIES, CHORE_CAT_COLOR, money, moneyShort } from "../money.js";
 import { render, requestRecipeOpen } from "../router.js";
@@ -398,19 +398,30 @@ export function payBillBtn(c) {
   }, paid ? "Paid · Undo" : "Pay");
 }
 
+/** Clear status picker: To do / Doing / Done (a native select, so it's easy on phones). */
+export function choreStatusSelect(c) {
+  return h("select.status-select", {
+    class: STATUS_COLOR[c.status],
+    "aria-label": `Status of ${c.title}`,
+    title: "Change status",
+    onclick: (e) => e.stopPropagation(),
+    onchange: (e) => setChore(c, { status: e.target.value }),
+  }, STATUS.map((s) => h("option", { value: s, selected: s === c.status }, STATUS_LABEL[s])));
+}
+
+/** Move, Edit and Delete for one chore, behind a "⋯" menu. */
+export function choreMenu(c) {
+  return rowMenu(c.title, [
+    { label: c.due_date ? "Move to another day" : "Set a day", onSelect: () => openMoveModal({ kind: "chore", id: c.id, label: c.title, currentDate: c.due_date }) },
+    { label: "Edit", onSelect: () => openChoreEditModal(c) },
+    { label: "Delete", deletePath: `/chores/${c.id}` },
+  ]);
+}
+
 export function choreRow(c) {
   const isBill = c.amount != null && c.amount > 0;
-  const next = STATUS[(STATUS.indexOf(c.status) + 1) % STATUS.length];
   return [
-    isBill
-      ? payBillBtn(c)
-      : h("button.icon.status", {
-          type: "button",
-          class: STATUS_COLOR[c.status],
-          title: `${STATUS_LABEL[c.status]} — Click for ${STATUS_LABEL[next]}`,
-          "aria-label": `${c.title} is ${STATUS_LABEL[c.status]}, mark ${STATUS_LABEL[next]}`,
-          onclick: () => setChore(c, { status: next }),
-        }, STATUS_GLYPH[c.status]),
+    isBill ? payBillBtn(c) : choreStatusSelect(c),
     h("span.grow",
       h("span.title", { class: c.status === "done" ? "strike" : null }, c.title),
       h("span.meta", ` ${c.assigned_to}`)),
@@ -419,9 +430,7 @@ export function choreRow(c) {
     isBill
       ? h("span.tag", { class: c.status === "done" ? "c-green" : "c-yellow" }, c.status === "done" ? `Paid · ${moneyShort(c.amount)}` : `Bill ${moneyShort(c.amount)}`)
       : priorityTag(c.priority),
-    moveBtn("chore", c.id, c.title, c.due_date),
-    editBtn(c.title, () => openChoreEditModal(c)),
-    delBtn(`/chores/${c.id}`, c.title),
+    choreMenu(c),
   ];
 }
 

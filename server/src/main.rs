@@ -1,4 +1,5 @@
 mod auth;
+mod groceries;
 mod guard;
 mod jobs;
 mod models;

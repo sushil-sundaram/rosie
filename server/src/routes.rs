@@ -8,6 +8,7 @@ use axum::{
 use sqlx::SqlitePool;
 use crate::jobs::{self, JobContext};
 use crate::models::{Budget, BudgetUpdate, PantryItem, Chore, ChoreUpdate, Expense, Meal, MealUpdate, ScanReceiptRequest};
+use crate::groceries;
 use crate::recipes;
 use serde_json::json;
 use std::collections::HashMap;
@@ -31,6 +32,11 @@ pub fn app_router(pool: SqlitePool) -> Router {
         .route("/expenses", get(get_expenses).post(add_expense))
         .route("/expenses/{id}", axum::routing::put(update_expense).delete(delete_expense))
         .route("/expenses/scan-receipt", post(scan_receipt).layer(photo_limit()))
+        .route("/groceries", get(groceries::list).post(groceries::add))
+        .route("/groceries/batch", post(groceries::add_batch))
+        .route("/groceries/to-pantry", post(groceries::to_pantry))
+        .route("/groceries/clear-checked", post(groceries::clear_checked))
+        .route("/groceries/{id}", patch(groceries::update).delete(groceries::remove))
         .route("/settings", get(get_settings).put(put_settings))
         .route("/budgets", get(get_budgets))
         .route("/budgets/{category}", axum::routing::put(put_budget))
@@ -304,16 +310,16 @@ pub(crate) fn conflict(current: serde_json::Value) -> (StatusCode, Json<serde_js
     })))
 }
 
-fn bad_request(msg: &str) -> (StatusCode, Json<serde_json::Value>) {
+pub(crate) fn bad_request(msg: &str) -> (StatusCode, Json<serde_json::Value>) {
     (StatusCode::BAD_REQUEST, Json(json!({ "error": msg })))
 }
 
 /// An amount of money or stock: a finite number, not negative.
-fn valid_amount(x: f64) -> bool {
+pub(crate) fn valid_amount(x: f64) -> bool {
     x.is_finite() && x >= 0.0 && x < 1e12
 }
 
-fn valid_text(s: &str) -> bool {
+pub(crate) fn valid_text(s: &str) -> bool {
     !s.trim().is_empty() && s.len() <= 500
 }
 
@@ -1269,6 +1275,58 @@ pub struct PantryBatch {
 
 const MAX_BATCH: usize = 200;
 
+/// Stock arriving in the pantry (from a receipt, a photo or the groceries list).
+pub(crate) struct NewStock {
+    pub name: String,
+    pub quantity: f64,
+    pub unit: String,
+    pub expires_on: Option<String>,
+}
+
+/// Puts stock into the pantry inside the caller's transaction. An item whose
+/// name and unit already exist is topped up instead of duplicated; invalid
+/// entries are skipped. Returns (added, topped_up).
+pub(crate) async fn merge_into_pantry(
+    tx: &mut sqlx::SqliteConnection,
+    items: &[NewStock],
+    expense_id: Option<i64>,
+) -> Result<(usize, usize), sqlx::Error> {
+    let (mut added, mut topped) = (0, 0);
+    for it in items.iter().filter(|i| valid_text(&i.name) && valid_amount(i.quantity) && i.unit.trim().len() <= 30) {
+        let qty = it.quantity.min(1e9);
+        let existing: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM pantry_items WHERE lower(trim(name)) = lower(trim(?)) AND lower(trim(unit)) = lower(?) LIMIT 1",
+        )
+        .bind(&it.name)
+        .bind(it.unit.trim())
+        .fetch_optional(&mut *tx)
+        .await?;
+        let expiry = it.expires_on.as_deref().filter(|d| valid_date(d));
+        if let Some(id) = existing {
+            // New stock's expiry date replaces the old one when it is given.
+            sqlx::query("UPDATE pantry_items SET quantity = min(1e9, quantity + ?), expense_id = COALESCE(?, expense_id), expires_on = COALESCE(?, expires_on), version = version + 1 WHERE id = ?")
+                .bind(qty)
+                .bind(expense_id)
+                .bind(expiry)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+            topped += 1;
+        } else {
+            sqlx::query("INSERT INTO pantry_items (name, quantity, unit, expires_on, expense_id) VALUES (?, ?, ?, ?, ?)")
+                .bind(it.name.trim())
+                .bind(qty)
+                .bind(it.unit.trim())
+                .bind(expiry)
+                .bind(expense_id)
+                .execute(&mut *tx)
+                .await?;
+            added += 1;
+        }
+    }
+    Ok((added, topped))
+}
+
 /// Adds several items at once. An item whose name (and unit) already exists is
 /// topped up instead of duplicated. `expense_id` links items to the purchase.
 async fn add_pantry_batch(State(pool): State<SqlitePool>, Json(payload): Json<PantryBatch>) -> impl IntoResponse {
@@ -1282,39 +1340,17 @@ async fn add_pantry_batch(State(pool): State<SqlitePool>, Json(payload): Json<Pa
             Some(eid) => sqlx::query_scalar("SELECT id FROM expenses WHERE id = ?").bind(eid).fetch_optional(&mut *tx).await?,
             None => None,
         };
-        let (mut added, mut topped) = (0, 0);
-        for it in payload.items.iter().filter(|i| valid_text(&i.name) && valid_amount(i.quantity) && i.unit.trim().len() <= 30) {
-            let qty = it.quantity.min(1e9);
-            let existing: Option<i64> = sqlx::query_scalar(
-                "SELECT id FROM pantry_items WHERE lower(trim(name)) = lower(trim(?)) AND lower(trim(unit)) = lower(?) LIMIT 1",
-            )
-            .bind(&it.name)
-            .bind(it.unit.trim())
-            .fetch_optional(&mut *tx)
-            .await?;
-            let expiry = it.expires_on.as_deref().filter(|d| valid_date(d));
-            if let Some(id) = existing {
-                // New stock's expiry date replaces the old one when it is given.
-                sqlx::query("UPDATE pantry_items SET quantity = min(1e9, quantity + ?), expense_id = COALESCE(?, expense_id), expires_on = COALESCE(?, expires_on), version = version + 1 WHERE id = ?")
-                    .bind(qty)
-                    .bind(expense_id)
-                    .bind(expiry)
-                    .bind(id)
-                    .execute(&mut *tx)
-                    .await?;
-                topped += 1;
-            } else {
-                sqlx::query("INSERT INTO pantry_items (name, quantity, unit, expires_on, expense_id) VALUES (?, ?, ?, ?, ?)")
-                    .bind(it.name.trim())
-                    .bind(qty)
-                    .bind(it.unit.trim())
-                    .bind(expiry)
-                    .bind(expense_id)
-                    .execute(&mut *tx)
-                    .await?;
-                added += 1;
-            }
-        }
+        let items: Vec<NewStock> = payload
+            .items
+            .iter()
+            .map(|i| NewStock {
+                name: i.name.clone(),
+                quantity: i.quantity,
+                unit: i.unit.clone(),
+                expires_on: i.expires_on.clone(),
+            })
+            .collect();
+        let (added, topped) = merge_into_pantry(&mut tx, &items, expense_id).await?;
         tx.commit().await?;
         Ok((added, topped))
     }

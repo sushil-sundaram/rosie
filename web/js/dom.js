@@ -33,7 +33,8 @@ export function h(tag, attrs, ...kids) {
 let toastTimer;
 export function toast(msg, isErr = false, action = null) {
   const t = document.getElementById("toast");
-  t.replaceChildren(
+  // replaceChildren would print a null as the text "null", hence the filter.
+  t.replaceChildren(...[
     h("span", msg),
     action
       ? h(
@@ -49,7 +50,7 @@ export function toast(msg, isErr = false, action = null) {
           action.label,
         )
       : null,
-  );
+  ].filter(Boolean));
   t.className = ["show", isErr && "err", action && "has-action"].filter(Boolean).join(" ");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (t.className = ""), action ? 5000 : 2600);
@@ -94,6 +95,79 @@ export const store = {
 export function list(items, row, ...emptyMsg) {
   if (!items.length) return h("p.empty", ...emptyMsg);
   return h("ul.list", items.map((it) => h("li", row(it))));
+}
+
+/**
+ * A "⋯" button opening a small menu of actions for one row.
+ * items: { label, onSelect } or, for deleting, { label, deletePath } which
+ * asks for a second tap before deleting.
+ */
+export function rowMenu(name, items) {
+  const wrap = h("span.menu-wrap");
+  let menu = null;
+  const close = () => {
+    if (!menu) return;
+    menu.remove();
+    menu = null;
+    btn.setAttribute("aria-expanded", "false");
+    document.removeEventListener("click", onOutside, true);
+    document.removeEventListener("keydown", onKey, true);
+  };
+  const onOutside = (e) => { if (!wrap.contains(e.target)) close(); };
+  const onKey = (e) => {
+    if (e.key === "Escape") { close(); btn.focus(); }
+  };
+  const itemBtn = (it) => {
+    const b = h("button", { type: "button", role: "menuitem", class: it.deletePath ? "c-red" : null }, it.label);
+    let armed = false;
+    b.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (it.deletePath) {
+        if (!armed) {
+          armed = true;
+          b.textContent = `Tap again to delete`;
+          return;
+        }
+        close();
+        try {
+          await api(it.deletePath, { method: "DELETE" });
+          toast(`Deleted ${name}`);
+          triggerRender();
+        } catch (err) {
+          fail(err);
+        }
+        return;
+      }
+      close();
+      it.onSelect();
+    });
+    return b;
+  };
+  const open = () => {
+    menu = h("div.row-menu", { role: "menu", "aria-label": `Actions for ${name}` }, items.filter(Boolean).map(itemBtn));
+    wrap.append(menu);
+    btn.setAttribute("aria-expanded", "true");
+    menu.querySelector("button")?.focus();
+    // Open upwards when there's no room below (bottom of a phone screen).
+    const r = menu.getBoundingClientRect();
+    if (r.bottom > window.innerHeight - 80) menu.classList.add("up");
+    document.addEventListener("click", onOutside, true);
+    document.addEventListener("keydown", onKey, true);
+  };
+  const btn = h("button.icon.menu-btn", {
+    type: "button",
+    title: "More",
+    "aria-label": `More actions for ${name}`,
+    "aria-haspopup": "menu",
+    "aria-expanded": "false",
+    onclick: (e) => {
+      e.stopPropagation();
+      if (menu) close();
+      else open();
+    },
+  }, "⋯");
+  wrap.append(btn);
+  return wrap;
 }
 
 export function delBtn(path, label) {

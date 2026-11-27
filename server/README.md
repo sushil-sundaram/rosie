@@ -10,6 +10,7 @@ server/
 └── src/
     ├── main.rs       # Config, SQLite pool, static files, /api nesting
     ├── routes.rs     # REST handlers, bill & recurrence logic, Ollama calls
+    ├── groceries.rs  # Groceries list: merge rules, moving bought items to the pantry
     ├── recipes.rs    # Recipes, ingredient parsing, import (link, photo, text)
     ├── sync.rs       # Live-update feed (Server-Sent Events)
     ├── guard.rs      # Host/Origin checks and security headers
@@ -52,6 +53,12 @@ All routes are served under `/api` (for example `GET /api/pantry`). Request and 
 | `POST` | `/recipes/import` | One of `{url}`, `{text}` or `{image_base64}` → `200` draft directly for structured recipe links, or `202 {job_id, kind, status}` for AI extraction (`{name, servings, time_minutes, source_url, image_url, ingredients, instructions, method}`) |
 | `GET` · `POST` | `/meals` | `{date, slot, title, recipe_id?}` — slot is breakfast, lunch or dinner. GET accepts optional `?month=YYYY-MM` or `?from=YYYY-MM-DD&to=YYYY-MM-DD` and `?limit=&offset=` |
 | `PATCH` · `DELETE` | `/meals/{id}` | PATCH `{date}` to reschedule |
+| **Groceries** | | |
+| `GET` · `POST` | `/groceries` | List (unticked first) / add `{name, quantity?, unit?, source?}`. An unticked item with the same name and a compatible unit is merged: amounts add up and `source` (the recipe) is noted. Returns `status` `created`, `merged` or `already` (that recipe already put it there) |
+| `POST` | `/groceries/batch` | `{items:[…]}` → `{added, merged, already}` |
+| `PATCH` · `DELETE` | `/groceries/{id}` | PATCH `{checked?, name?, quantity?, unit?, version?}`; edits with a stale `version` get 409, ticking never does |
+| `POST` | `/groceries/to-pantry` | `{ids?, expense_id?}` (default: all ticked) → moves them into the pantry, topping up items with the same name and unit, and removes them from the list → `{moved, added, topped_up}` |
+| `POST` | `/groceries/clear-checked` | Removes ticked items without touching the pantry |
 | **Chores & bills** | | |
 | `GET` · `POST` | `/chores` | `{title, assigned_to, priority, status, points, due_date?, repeat?, amount?, category?}` — an `amount` makes it a bill |
 | `PATCH` · `DELETE` | `/chores/{id}` | PATCH any of `{status, due_date, repeat}` (`""` clears a date or stops repeating) |
