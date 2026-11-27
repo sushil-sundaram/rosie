@@ -56,6 +56,21 @@ export function toast(msg, isErr = false, action = null) {
 }
 
 export const fail = (e) => toast(e.message || String(e), true);
+
+/**
+ * Shown in an edit form when someone else saved the same thing first.
+ * `actions` are [label, onClick, primary?]. Replaces any earlier notice in `form`.
+ */
+export function showConflict(form, message, actions) {
+  form.querySelector(".conflict")?.remove();
+  const notice = h("div.conflict", { role: "alert" },
+    h("p", h("strong", "Changed by someone else. "), message),
+    h("div.scan", actions.map(([label, onClick, primary]) =>
+      h(primary ? "button.primary" : "button", { type: "button", onclick: onClick }, label))));
+  form.prepend(notice);
+  notice.scrollIntoView({ block: "nearest" });
+  return notice;
+}
 export const formData = (form) => Object.fromEntries(new FormData(form).entries());
 
 export const store = {

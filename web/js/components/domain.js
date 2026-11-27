@@ -1,6 +1,6 @@
-import { api } from "../api.js";
+import { api, conflictCurrent } from "../api.js";
 import { addDays, fmtDay, iso, nextDate, today } from "../dates.js";
-import { create, delBtn, fail, formData, h, store, toast } from "../dom.js";
+import { create, delBtn, fail, formData, h, store, toast, showConflict } from "../dom.js";
 import { isJobPending, submitAiJob } from "../jobs.js";
 import { CATEGORIES, CAT_COLOR, CHORE_CATEGORIES, CHORE_CAT_COLOR, money, moneyShort } from "../money.js";
 import { render, requestRecipeOpen } from "../router.js";
@@ -317,25 +317,34 @@ export function openChoreEditModal(c) {
 }
 
 export function openExpenseEditModal(e) {
+  let version = e.version ?? null; // a save only applies to the expense as loaded
+  const save = async () => {
+    const d = formData(form);
+    const title = d.title.trim();
+    if (!title) return toast("Title is required", true);
+    try {
+      await api(`/expenses/${e.id}`, {
+        method: "PUT",
+        body: { title, amount: Number(d.amount), category: d.category, date: d.date, version },
+      });
+      close();
+      toast(`Saved ${title}`);
+      render();
+    } catch (err) {
+      const now = conflictCurrent(err);
+      if (!now) return fail(err);
+      showConflict(form, `It's now ${now.title}, ${money(now.amount)} on ${now.date}.`, [
+        ["Keep mine", () => { version = now.version; save(); }, true],
+        ["Use theirs", () => { close(); render(); }],
+      ]);
+    }
+  };
   const form = h(
     "form.stack",
     {
-      onsubmit: async (ev) => {
+      onsubmit: (ev) => {
         ev.preventDefault();
-        const d = formData(ev.target);
-        const title = d.title.trim();
-        if (!title) return toast("Title is required", true);
-        try {
-          await api(`/expenses/${e.id}`, {
-            method: "PUT",
-            body: { title, amount: Number(d.amount), category: d.category, date: d.date },
-          });
-          close();
-          toast(`Saved ${title}`);
-          render();
-        } catch (err) {
-          fail(err);
-        }
+        save();
       },
     },
     h("input", { name: "title", value: e.title, placeholder: "What", required: true, "aria-label": "Expense" }),

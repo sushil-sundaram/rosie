@@ -15,6 +15,9 @@ pub struct PantryItem {
     pub expense_id: Option<i64>,
     #[serde(default)]
     pub low_threshold: Option<f64>,
+    /// Bumped on every change; send it back with an edit to detect conflicts.
+    #[serde(default)]
+    pub version: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, FromRow)]
@@ -35,6 +38,9 @@ pub struct Recipe {
     #[sqlx(skip)]
     #[serde(default)]
     pub ingredients: Vec<RecipeIngredient>,
+    /// Bumped on every change; send it back with an edit to detect conflicts.
+    #[serde(default)]
+    pub version: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, FromRow)]
@@ -91,6 +97,9 @@ pub struct Expense {
     pub amount: f64,
     pub category: String,
     pub date: String,
+    /// Bumped on every change; send it back with an edit to detect conflicts.
+    #[serde(default)]
+    pub version: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]

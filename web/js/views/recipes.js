@@ -1,5 +1,5 @@
-import { api } from "../api.js";
-import { delBtn, fail, h, list, safeHref, safeImg, toast } from "../dom.js";
+import { api, conflictCurrent } from "../api.js";
+import { delBtn, fail, h, list, safeHref, safeImg, showConflict, toast } from "../dom.js";
 import { submitAiJob } from "../jobs.js";
 import { fmtQty } from "../money.js";
 import { matchRecipePantry } from "../pantry_match.js";
@@ -42,6 +42,7 @@ const asDraft = (r, extra = {}) => ({
   image_url: r.image_url || "",
   ingredients: (r.ingredients || []).map((i) => (typeof i === "string" ? i : i.text)).join("\n"),
   instructions: Array.isArray(r.instructions) ? r.instructions.join("\n") : (r.instructions || ""),
+  version: r.version ?? null, // the saved version this edit started from
   ...extra,
 });
 
@@ -121,6 +122,7 @@ function recipeEditor() {
       image_url: d.image_url || null,
       ingredients: lines(d.ingredients),
       instructions: lines(d.instructions).join("\n"),
+      version: d.version,
     };
     try {
       if (d.id) await api(`/recipes/${d.id}`, { method: "PUT", body });
@@ -129,7 +131,13 @@ function recipeEditor() {
       toast(d.id ? `Updated ${body.name}` : `Saved ${body.name}`);
       render();
     } catch (err) {
-      fail(err);
+      const now = conflictCurrent(err);
+      if (!now) return fail(err);
+      // Keep this person's edits on screen and let them choose.
+      showConflict(editor, `${now.name} was saved from another device while you were editing.`, [
+        ["Keep my changes", () => { d.version = now.version; editor.requestSubmit(); }, true],
+        ["Load their version", () => { recipeDraft = asDraft(now); render(); }],
+      ]);
     }
   };
   const note = d.id ? "Editing"
@@ -139,7 +147,7 @@ function recipeEditor() {
   const n = lines(d.ingredients).length;
   const imgUrl = safeImg(d.image_url);
   const srcUrl = safeHref(d.source_url);
-  return h("form.review.recipe-edit", { onsubmit: save, "aria-label": "Review recipe" },
+  const editor = h("form.review.recipe-edit", { onsubmit: save, "aria-label": "Review recipe" },
     h("div.spread",
       h("h3", note),
       h("button.icon", { type: "button", onclick: () => { recipeDraft = null; render(); }, "aria-label": "Discard" }, "×")),
@@ -157,6 +165,7 @@ function recipeEditor() {
     h("textarea", { id: "rd-steps", name: "instructions", rows: Math.min(16, Math.max(4, lines(d.instructions).length + 1)), oninput: bind("instructions").oninput }, d.instructions),
     h("div.scan", h("button.primary", { type: "submit" }, d.id ? "Save changes" : "Save recipe")),
   );
+  return editor;
 }
 
 /** Steps as numbered lists; a line ending in ":" ("For the gravy:") starts a new group. */

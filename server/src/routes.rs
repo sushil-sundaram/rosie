@@ -78,10 +78,12 @@ async fn update_pantry_item(
         return bad_request("expires_on must be a real date (YYYY-MM-DD)");
     }
     // Missing expires_on keeps the current one; "" clears it.
-    match sqlx::query(
+    // With a version, the edit only applies to the row as the editor saw it.
+    match sqlx::query_scalar::<_, i64>(
         "UPDATE pantry_items SET name = ?1, quantity = ?2, unit = ?3, \
          expires_on = CASE WHEN ?4 IS NULL THEN expires_on WHEN ?4 = '' THEN NULL ELSE ?4 END, \
-         low_threshold = ?5 WHERE id = ?6",
+         low_threshold = ?5, version = version + 1 \
+         WHERE id = ?6 AND (?7 IS NULL OR version = ?7) RETURNING version",
     )
         .bind(payload.name.trim())
         .bind(payload.quantity.min(1e9))
@@ -89,11 +91,15 @@ async fn update_pantry_item(
         .bind(expiry)
         .bind(payload.low_threshold)
         .bind(id)
-        .execute(&pool)
+        .bind(payload.version)
+        .fetch_optional(&pool)
         .await
     {
-        Ok(r) if r.rows_affected() == 0 => (StatusCode::NOT_FOUND, Json(json!({"error": "Already removed or changed by someone else"}))),
-        Ok(_) => (StatusCode::OK, Json(json!({"status": "updated"}))),
+        Ok(Some(version)) => (StatusCode::OK, Json(json!({"status": "updated", "version": version}))),
+        Ok(None) => match sqlx::query_as::<_, PantryItem>("SELECT * FROM pantry_items WHERE id = ?").bind(id).fetch_optional(&pool).await {
+            Ok(Some(current)) => conflict(json!(current)),
+            _ => (StatusCode::NOT_FOUND, Json(json!({"error": "Already removed by someone else"}))),
+        },
         Err(e) => {
             tracing::error!("update pantry item {id}: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to update pantry item"})))
@@ -115,7 +121,7 @@ async fn adjust_pantry_item(
     if !payload.delta.is_finite() || payload.delta.abs() > 1e9 {
         return bad_request("delta must be a number");
     }
-    match sqlx::query("UPDATE pantry_items SET quantity = min(1e9, max(0, quantity + ?)) WHERE id = ?")
+    match sqlx::query("UPDATE pantry_items SET quantity = min(1e9, max(0, quantity + ?)), version = version + 1 WHERE id = ?")
         .bind(payload.delta)
         .bind(id)
         .execute(&pool)
@@ -287,6 +293,15 @@ fn day_of_date(d: &str) -> i64 {
     } else {
         1
     }
+}
+
+/// 409 for an edit made from a stale screen: someone else changed the row since
+/// it was loaded. The row as it is now comes back so the app can show it.
+pub(crate) fn conflict(current: serde_json::Value) -> (StatusCode, Json<serde_json::Value>) {
+    (StatusCode::CONFLICT, Json(json!({
+        "error": "Someone else changed this while you were editing it.",
+        "current": current,
+    })))
 }
 
 fn bad_request(msg: &str) -> (StatusCode, Json<serde_json::Value>) {
@@ -579,7 +594,7 @@ async fn apply_chore_update(pool: &SqlitePool, id: i64, payload: &ChoreUpdate) -
     if let Some(amt) = amount {
         if status_now == "done" {
             if let Some(eid) = chore.expense_id {
-                sqlx::query("UPDATE expenses SET title = ?, amount = ?, category = ? WHERE id = ?")
+                sqlx::query("UPDATE expenses SET title = ?, amount = ?, category = ?, version = version + 1 WHERE id = ?")
                     .bind(&title)
                     .bind(amt)
                     .bind(category.as_deref().unwrap_or("Utilities"))
@@ -983,20 +998,21 @@ async fn update_expense(
         return bad_request("invalid expense category");
     };
     let title = payload.title.trim();
-    let result: Result<u64, sqlx::Error> = async {
+    let result: Result<Option<i64>, sqlx::Error> = async {
         let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
-        let changed = sqlx::query(
-            "UPDATE expenses SET title = ?, amount = ?, category = ?, date = ? WHERE id = ?",
+        let changed: Option<i64> = sqlx::query_scalar(
+            "UPDATE expenses SET title = ?1, amount = ?2, category = ?3, date = ?4, version = version + 1 \
+             WHERE id = ?5 AND (?6 IS NULL OR version = ?6) RETURNING version",
         )
         .bind(title)
         .bind(payload.amount)
         .bind(category)
         .bind(&payload.date)
         .bind(id)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-        if changed > 0 {
+        .bind(payload.version)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if changed.is_some() {
             sqlx::query("UPDATE chores SET title = ?, amount = ?, category = ? WHERE expense_id = ?")
                 .bind(title)
                 .bind(payload.amount)
@@ -1010,8 +1026,11 @@ async fn update_expense(
     }
     .await;
     match result {
-        Ok(0) => (StatusCode::NOT_FOUND, Json(json!({"error": "Already removed or changed by someone else"}))),
-        Ok(_) => (StatusCode::OK, Json(json!({"status": "updated"}))),
+        Ok(Some(version)) => (StatusCode::OK, Json(json!({"status": "updated", "version": version}))),
+        Ok(None) => match sqlx::query_as::<_, Expense>("SELECT * FROM expenses WHERE id = ?").bind(id).fetch_optional(&pool).await {
+            Ok(Some(current)) => conflict(json!(current)),
+            _ => (StatusCode::NOT_FOUND, Json(json!({"error": "Already removed by someone else"}))),
+        },
         Err(e) => {
             tracing::error!("update expense {id}: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to update expense"})))
@@ -1276,7 +1295,7 @@ async fn add_pantry_batch(State(pool): State<SqlitePool>, Json(payload): Json<Pa
             let expiry = it.expires_on.as_deref().filter(|d| valid_date(d));
             if let Some(id) = existing {
                 // New stock's expiry date replaces the old one when it is given.
-                sqlx::query("UPDATE pantry_items SET quantity = min(1e9, quantity + ?), expense_id = COALESCE(?, expense_id), expires_on = COALESCE(?, expires_on) WHERE id = ?")
+                sqlx::query("UPDATE pantry_items SET quantity = min(1e9, quantity + ?), expense_id = COALESCE(?, expense_id), expires_on = COALESCE(?, expires_on), version = version + 1 WHERE id = ?")
                     .bind(qty)
                     .bind(expense_id)
                     .bind(expiry)
@@ -1362,6 +1381,7 @@ mod tests {
                 expires_on: None,
                 expense_id: None,
                 low_threshold: None,
+                version: None,
             }),
         )
         .await
@@ -1385,6 +1405,7 @@ mod tests {
                 expires_on: Some("2026-12-10".into()),
                 expense_id: None,
                 low_threshold: None,
+                version: None,
             }),
         )
         .await
@@ -1405,6 +1426,7 @@ mod tests {
                 expires_on: Some("".into()),
                 expense_id: None,
                 low_threshold: None,
+                version: None,
             }),
         )
         .await
@@ -1425,6 +1447,7 @@ mod tests {
                 expires_on: None,
                 expense_id: None,
                 low_threshold: None,
+                version: None,
             }),
         )
         .await
@@ -1433,41 +1456,176 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn apply_chore_update_handles_malformed_due_date_without_panicking() {
+    async fn database_rejects_malformed_due_date() {
+        // Before schema v2 a malformed date could be stored and had to be
+        // handled at runtime; now the database refuses it outright.
         let pool = test_pool().await;
-        let id = sqlx::query(
+        let err = sqlx::query(
             "INSERT INTO chores (title, assigned_to, priority, status, points, due_date, repeat) \
              VALUES ('Water plants', 'anyone', 'medium', 'todo', 1, 'bad', 'monthly')",
         )
         .execute(&pool)
         .await
-        .unwrap()
-        .last_insert_rowid();
+        .expect_err("malformed due_date must be rejected");
+        assert!(err.to_string().contains("CHECK constraint failed"), "{err}");
+    }
 
-        let ok = apply_chore_update(
-            &pool,
-            id,
-            &ChoreUpdate {
-                status: Some("done".into()),
-                ..Default::default()
-            },
-        )
-        .await
-        .expect("should not fail or panic on malformed legacy due_date");
-        assert!(ok);
+    #[tokio::test]
+    async fn schema_enforces_rules_and_links() {
+        let pool = test_pool().await;
+        for bad in [
+            "INSERT INTO chores (title, priority, status) VALUES ('x', 'urgent', 'todo')",
+            "INSERT INTO chores (title, priority, status, points) VALUES ('x', 'low', 'todo', -1)",
+            "INSERT INTO chores (title, priority, status, repeat) VALUES ('x', 'low', 'todo', 'daily')",
+            "INSERT INTO chores (title, priority, status) VALUES ('  ', 'low', 'todo')",
+            "INSERT INTO expenses (title, amount, category, date) VALUES ('x', 5, 'Other', '2026-02-30')",
+            "INSERT INTO expenses (title, amount, category, date) VALUES ('x', -5, 'Other', '2026-02-03')",
+            "INSERT INTO pantry_items (name, quantity) VALUES ('x', -1)",
+            "INSERT INTO pantry_items (name, quantity) VALUES ('x', 'lots')",
+            "INSERT INTO meal_plan (date, slot, title) VALUES ('2026-11-27', 'brunch', 'x')",
+            "INSERT INTO recipe_ingredients (recipe_id, name) VALUES (9999, 'x')",
+            "INSERT INTO budgets (category, amount) VALUES ('Dining', 0)",
+        ] {
+            assert!(sqlx::query(bad).execute(&pool).await.is_err(), "accepted: {bad}");
+        }
 
-        let next_id: Option<i64> = sqlx::query_scalar("SELECT next_id FROM chores WHERE id = ?")
-            .bind(id)
-            .fetch_one(&pool)
+        // Deleting a recipe removes its ingredients and unlinks planned meals.
+        let rid = sqlx::query("INSERT INTO recipes (name) VALUES ('Dal')").execute(&pool).await.unwrap().last_insert_rowid();
+        sqlx::query("INSERT INTO recipe_ingredients (recipe_id, name, text) VALUES (?, 'toor dal', '1 cup toor dal')")
+            .bind(rid).execute(&pool).await.unwrap();
+        let mid = sqlx::query("INSERT INTO meal_plan (date, slot, title, recipe_id) VALUES ('2026-11-27', 'dinner', 'Dal', ?)")
+            .bind(rid).execute(&pool).await.unwrap().last_insert_rowid();
+        sqlx::query("DELETE FROM recipes WHERE id = ?").bind(rid).execute(&pool).await.unwrap();
+        let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM recipe_ingredients").fetch_one(&pool).await.unwrap();
+        let link: Option<i64> = sqlx::query_scalar("SELECT recipe_id FROM meal_plan WHERE id = ?").bind(mid).fetch_one(&pool).await.unwrap();
+        assert_eq!((left, link), (0, None));
+
+        // Deleting an expense or a chore clears links that pointed at it.
+        let eid = sqlx::query("INSERT INTO expenses (title, amount, category, date) VALUES ('Shop', 10, 'Groceries', '2026-11-27')")
+            .execute(&pool).await.unwrap().last_insert_rowid();
+        let pid = sqlx::query("INSERT INTO pantry_items (name, quantity, expense_id) VALUES ('Rice', 1, ?)")
+            .bind(eid).execute(&pool).await.unwrap().last_insert_rowid();
+        let next = sqlx::query("INSERT INTO chores (title, priority, status) VALUES ('Bins', 'low', 'todo')")
+            .execute(&pool).await.unwrap().last_insert_rowid();
+        let prev = sqlx::query("INSERT INTO chores (title, priority, status, next_id) VALUES ('Bins', 'low', 'done', ?)")
+            .bind(next).execute(&pool).await.unwrap().last_insert_rowid();
+        sqlx::query("DELETE FROM expenses WHERE id = ?").bind(eid).execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM chores WHERE id = ?").bind(next).execute(&pool).await.unwrap();
+        let pe: Option<i64> = sqlx::query_scalar("SELECT expense_id FROM pantry_items WHERE id = ?").bind(pid).fetch_one(&pool).await.unwrap();
+        let pn: Option<i64> = sqlx::query_scalar("SELECT next_id FROM chores WHERE id = ?").bind(prev).fetch_one(&pool).await.unwrap();
+        assert_eq!((pe, pn), (None, None));
+    }
+
+    /// Schema v2 rebuilds every table. Data written under the old schema,
+    /// including values that break the new rules, must come through: valid rows
+    /// unchanged, invalid values repaired, no row lost, ids never reused.
+    #[tokio::test]
+    async fn schema_v2_migration_keeps_and_repairs_old_data() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
             .await
             .unwrap();
-        let next: Chore = sqlx::query_as("SELECT * FROM chores WHERE id = ?")
-            .bind(next_id.expect("next occurrence created"))
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert!(valid_date(next.due_date.as_deref().unwrap_or("")));
-        assert!((1..=31).contains(&next.repeat_day.unwrap_or(0)));
+        let all = sqlx::migrate!("./migrations");
+        let v2 = 20261128000000;
+        let mut old = sqlx::migrate!("./migrations");
+        old.migrations = std::borrow::Cow::Owned(all.migrations.iter().filter(|m| m.version < v2).cloned().collect());
+        old.run(&pool).await.unwrap();
+
+        for q in [
+            "INSERT INTO expenses (id, title, amount, category, date) VALUES (7, 'Rent', 15000, 'Utilities', '2026-11-01')",
+            "INSERT INTO expenses (id, title, amount, category, date) VALUES (8, 'Odd', 20, 'Other', 'yesterday')",
+            "INSERT INTO recipes (id, name, instructions) VALUES (3, 'Poha', 'Rinse.')",
+            "INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, text) VALUES (3, 'poha', 2, 'cup', '2 cups poha')",
+            // Only possible in a database written with foreign keys off.
+            "PRAGMA foreign_keys = OFF",
+            "INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES (99, 'orphan', 1, 'g')",
+            "PRAGMA foreign_keys = ON",
+            "INSERT INTO meal_plan (date, slot, title, recipe_id) VALUES ('2026-11-27', 'breakfast', 'Poha', 3)",
+            "INSERT INTO pantry_items (name, quantity, unit, expires_on, expense_id) VALUES ('Milk', -2, 'L', '2026-02-30', 42)",
+            "INSERT INTO chores (id, title, assigned_to, priority, status, points, due_date, repeat, repeat_day, next_id, amount, expense_id) \
+             VALUES (5, 'Rent', 'Sushil', 'urgent', 'paid', 5000, '2026-11-01', 'monthly', 1, 77, 15000, 7)",
+            "DELETE FROM expenses WHERE id = 8",
+            "INSERT INTO expenses (id, title, amount, category, date) VALUES (9, 'Odd', 20, 'Other', 'yesterday')",
+            "DELETE FROM expenses WHERE id = 9",
+        ] {
+            sqlx::query(q).execute(&pool).await.unwrap();
+        }
+
+        all.run(&pool).await.unwrap();
+
+        let fk: Vec<(String,)> = sqlx::query_as("SELECT \"table\" FROM pragma_foreign_key_check").fetch_all(&pool).await.unwrap();
+        assert!(fk.is_empty(), "{fk:?}");
+        let on: i64 = sqlx::query_scalar("PRAGMA foreign_keys").fetch_one(&pool).await.unwrap();
+        assert_eq!(on, 1);
+
+        let rent: Expense = sqlx::query_as("SELECT * FROM expenses WHERE id = 7").fetch_one(&pool).await.unwrap();
+        assert_eq!((rent.amount, rent.date.as_str(), rent.version), (15000.0, "2026-11-01", Some(1)));
+        let meal_recipe: Option<i64> = sqlx::query_scalar("SELECT recipe_id FROM meal_plan").fetch_one(&pool).await.unwrap();
+        assert_eq!(meal_recipe, Some(3));
+        let ingredients: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM recipe_ingredients").fetch_one(&pool).await.unwrap();
+        assert_eq!(ingredients, 1, "orphan ingredient dropped, the real one kept");
+
+        let milk: PantryItem = sqlx::query_as("SELECT * FROM pantry_items").fetch_one(&pool).await.unwrap();
+        assert_eq!((milk.quantity, milk.expires_on, milk.expense_id), (0.0, None, None));
+        let rent_bill: Chore = sqlx::query_as("SELECT * FROM chores WHERE id = 5").fetch_one(&pool).await.unwrap();
+        assert_eq!(
+            (rent_bill.priority.as_str(), rent_bill.status.as_str(), rent_bill.points, rent_bill.next_id, rent_bill.expense_id),
+            ("medium", "todo", 1000, None, Some(7))
+        );
+
+        // Expense 9 was deleted before the migration: its id is never handed out again.
+        let new_id = sqlx::query("INSERT INTO expenses (title, amount, category, date) VALUES ('New', 1, 'Other', '2026-11-27')")
+            .execute(&pool).await.unwrap().last_insert_rowid();
+        assert_eq!(new_id, 10);
+    }
+
+    /// Status and JSON body of a handler's response.
+    async fn parts(r: impl IntoResponse) -> (StatusCode, Json<serde_json::Value>) {
+        let res = r.into_response();
+        let status = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20).await.unwrap();
+        (status, Json(serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)))
+    }
+
+    #[tokio::test]
+    async fn stale_edits_get_409_with_the_current_row() {
+        let pool = test_pool().await;
+        let id = sqlx::query("INSERT INTO pantry_items (name, quantity, unit) VALUES ('Rice', 2, 'kg')")
+            .execute(&pool).await.unwrap().last_insert_rowid();
+        let item = |name: &str, version: Option<i64>| PantryItem {
+            id: 0, name: name.into(), quantity: 2.0, unit: "kg".into(), expires_on: None,
+            expense_id: None, low_threshold: None, version,
+        };
+
+        // A edits from version 1 and wins; B, also on version 1, gets a conflict.
+        let (status, Json(body)) = parts(update_pantry_item(State(pool.clone()), Path(id), Json(item("Basmati rice", Some(1)))).await).await;
+        assert_eq!((status, body["version"].as_i64()), (StatusCode::OK, Some(2)));
+        let (status, Json(body)) = parts(update_pantry_item(State(pool.clone()), Path(id), Json(item("Brown rice", Some(1)))).await).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!((body["current"]["name"].as_str(), body["current"]["version"].as_i64()), (Some("Basmati rice"), Some(2)));
+
+        // A +1 tap also counts as a change.
+        let _ = adjust_pantry_item(State(pool.clone()), Path(id), Json(Adjust { delta: 1.0 })).await;
+        let (status, _) = parts(update_pantry_item(State(pool.clone()), Path(id), Json(item("Basmati", Some(2)))).await).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+
+        // Without a version (older clients, scripts) the edit still applies.
+        let (status, _) = parts(update_pantry_item(State(pool.clone()), Path(id), Json(item("Basmati", None))).await).await;
+        assert_eq!(status, StatusCode::OK);
+
+        // Expenses work the same way.
+        let eid = sqlx::query("INSERT INTO expenses (title, amount, category, date) VALUES ('Shop', 10, 'Groceries', '2026-11-27')")
+            .execute(&pool).await.unwrap().last_insert_rowid();
+        let exp = |title: &str, version| Expense { id: 0, title: title.into(), amount: 10.0, category: "Groceries".into(), date: "2026-11-27".into(), version };
+        let (status, _) = parts(update_expense(State(pool.clone()), Path(eid), Json(exp("Big shop", Some(1)))).await).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, Json(body)) = parts(update_expense(State(pool.clone()), Path(eid), Json(exp("Small shop", Some(1)))).await).await;
+        assert_eq!((status, body["current"]["title"].as_str()), (StatusCode::CONFLICT, Some("Big shop")));
+
+        // Missing rows are still 404, not 409.
+        let (status, _) = parts(update_pantry_item(State(pool.clone()), Path(9999), Json(item("x", Some(1)))).await).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -1493,7 +1651,7 @@ mod tests {
         // Invalid expense/chore categories rejected.
         let res = add_expense(
             State(pool.clone()),
-            Json(Expense { id: 0, title: "Coffee".into(), amount: 50.0, category: "Unknown".into(), date: "2026-11-26".into() }),
+            Json(Expense { id: 0, title: "Coffee".into(), amount: 50.0, category: "Unknown".into(), date: "2026-11-26".into(), version: None }),
         )
         .await
         .into_response();
@@ -1539,8 +1697,8 @@ mod tests {
             Json(PantryBatch {
                 expense_id: None,
                 items: vec![
-                    PantryItem { id: 0, name: "Sugar".into(), quantity: 9e8, unit: "g".into(), expires_on: None, expense_id: None, low_threshold: None },
-                    PantryItem { id: 0, name: "Sugar".into(), quantity: 5e8, unit: "g".into(), expires_on: None, expense_id: None, low_threshold: None },
+                    PantryItem { id: 0, name: "Sugar".into(), quantity: 9e8, unit: "g".into(), expires_on: None, expense_id: None, low_threshold: None, version: None },
+                    PantryItem { id: 0, name: "Sugar".into(), quantity: 5e8, unit: "g".into(), expires_on: None, expense_id: None, low_threshold: None, version: None },
                 ],
             }),
         )
@@ -1660,7 +1818,7 @@ mod tests {
         let res = update_expense(
             State(pool.clone()),
             Path(expense_id),
-            Json(Expense { id: 0, title: "City Water Corrected".into(), amount: 60.0, category: "utilities".into(), date: "2026-11-12".into() }),
+            Json(Expense { id: 0, title: "City Water Corrected".into(), amount: 60.0, category: "utilities".into(), date: "2026-11-12".into(), version: None }),
         )
         .await
         .into_response();
@@ -1681,6 +1839,7 @@ mod tests {
                 expires_on: None,
                 expense_id: None,
                 low_threshold: Some(-5.0),
+                version: None,
             }),
         )
         .await
@@ -1697,6 +1856,7 @@ mod tests {
                 expires_on: None,
                 expense_id: None,
                 low_threshold: Some(250.0),
+                version: None,
             }),
         )
         .await
