@@ -10,6 +10,7 @@ import {
 } from "../components/domain.js";
 
 let homeAdd = "chore";
+let homeAddOpen = false; // the add form stays tucked away until asked for
 
 export async function homeView(root) {
   const { from, to } = gridRange();
@@ -40,12 +41,12 @@ export async function homeView(root) {
     const out = [];
     if (layers.chores) ghosts.filter((p) => p.date === ds).forEach((p) => out.push(ghostChip(p)));
     if (layers.meals) meals.filter((m) => m.date === ds).sort(bySlot)
-      .forEach((m) => out.push({ label: m.title, cls: SLOT_COLOR[m.slot], kind: "meal", id: m.id, title: `${m.slot}: ${m.title}` }));
+      .forEach((m) => out.push({ label: m.title, cls: "t-meal", kind: "meal", id: m.id, title: `${m.slot}: ${m.title}` }));
     if (layers.chores) chores.filter((c) => c.due_date === ds)
-      .forEach((c) => out.push({ label: chipLabel(c), cls: c.amount ? "c-yellow" : "c-orange", kind: "chore", id: c.id, done: c.status === "done" }));
+      .forEach((c) => out.push({ label: chipLabel(c), cls: c.amount ? "t-bill" : "t-chore", kind: "chore", id: c.id, done: c.status === "done" }));
     if (layers.expenses) {
       const t = expenses.filter((e) => e.date === ds).reduce((s, e) => s + e.amount, 0);
-      if (t) out.push({ label: moneyShort(t), cls: "c-pink", title: `Spent ${money(t)}` });
+      if (t) out.push({ label: moneyShort(t), cls: "t-spend", title: `Spent ${money(t)}` });
     }
     return out;
   };
@@ -67,7 +68,7 @@ export async function homeView(root) {
         stat(low.length, "Pantry items low", low.length ? "c-red" : "c-green"),
       ),
       h("div.layers", { role: "group", "aria-label": "Show on calendar" },
-        [["meals", "Meals", "c-purple"], ["chores", "Chores", "c-orange"], ["expenses", "Expenses", "c-pink"]].map(([k, label, c]) =>
+        [["meals", "Meals", "t-meal"], ["chores", "Chores", "t-chore"], ["expenses", "Expenses", "t-spend"]].map(([k, label, c]) =>
           h("button.toggle", { type: "button", class: layers[k] ? `on ${c}` : null, "aria-pressed": String(!!layers[k]), onclick: () => toggleLayer(k) }, label))),
       h("div.home-cal-wrap", calendar({ chipsFor, onMove: moveItem })),
     ],
@@ -75,9 +76,10 @@ export async function homeView(root) {
       section("Meals", list(dMeals, mealRow, "Nothing planned")),
       section("Chores", list(dChores, choreRow, "No chores")),
       section("Expenses", list(dExp, expenseRow, "Nothing spent")),
-      h("h2", "Add to this day"),
-      segmented([["chore", "Chore"], ["meal", "Meal"], ["expense", "Expense"]], homeAdd, (k) => { homeAdd = k; render(); }, "Item type"),
-      homeAdd === "chore" ? choreForm(sel) : homeAdd === "meal" ? mealForm(sel, recipes) : expenseForm(sel),
+      h("details.add-panel", { open: homeAddOpen, ontoggle: (e) => { homeAddOpen = e.target.open; } },
+        h("summary", "+ Add to this day"),
+        segmented([["chore", "Chore"], ["meal", "Meal"], ["expense", "Expense"]], homeAdd, (k) => { homeAdd = k; render(); }, "Item type"),
+        homeAdd === "chore" ? choreForm(sel) : homeAdd === "meal" ? mealForm(sel, recipes) : expenseForm(sel)),
       low.length ? section("Running low", list(low, (p) => [h("span.grow.title", p.name), h("span.num.c-red", `${fmtQty(p.quantity)} ${p.unit}`)])) : null,
     ],
     {

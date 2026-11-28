@@ -40,6 +40,8 @@ All routes are served under `/api` (for example `GET /api/pantry`). Request and 
 | `GET` | `/health` | `{"status":"ok","version"}` after checking the database; 503 if it's unavailable. Used by the container health check |
 | `GET` | `/events` | Server-Sent Events: one `{"by","path"}` message per successful write, or `{"type":"job","job_id","kind","status","by"}` when a background AI scan completes |
 | `GET` | `/jobs/{id}` | Poll an async AI job (`{job_id, kind, status, result?, error?}`) |
+| `GET` · `POST` | `/corrections` | Scan corrections Rosie remembers. POST `{items:[{source, name, unit?}]}` saves fixes made in a scan review (`source` = what the scan read); later receipt and pantry-photo scans apply them and mark those items `remembered` |
+| `DELETE` | `/corrections/{id}` | Forget one |
 | `GET` · `PUT` | `/settings` | `{"currency":"INR","locale":"en-IN"}`; PUT accepts only known keys |
 | **Pantry** | | |
 | `GET` · `POST` | `/pantry` | List / add `{name, quantity, unit, expires_on?}` |
@@ -65,7 +67,7 @@ All routes are served under `/api` (for example `GET /api/pantry`). Request and 
 | **Expenses & budgets** | | |
 | `GET` · `POST` | `/expenses` | `{title, amount, category, date}`; POST returns `{id}`. GET accepts optional `?month=YYYY-MM` or `?from=YYYY-MM-DD&to=YYYY-MM-DD` and `?limit=&offset=` |
 | `PUT` · `DELETE` | `/expenses/{id}` | Edit (send `version`; 409 if newer) / delete: unlinks pantry items bought with it, 409 if it is a paid bill's expense (un-pay the bill instead) |
-| `POST` | `/expenses/scan-receipt` | `{image_base64}` → `202 {job_id, kind, status}`; job result is `{title, amount, category, date, items}` |
+| `POST` | `/expenses/scan-receipt` | `{image_base64}`: a photo, or a PDF as `data:application/pdf;base64,…`. Runs as a background job → `{title, amount, category, date, items, expected_items?}`. PDFs with text are read with poppler (`pdftotext -layout`); GST-table rows (description, quantity, unit) are taken straight from the layout and the text model only names the shop and tidies item names. PDFs without text are rendered and read like a photo |
 | `GET` | `/budgets` | `[{category, amount}]` — monthly, repeats every month |
 | `PUT` | `/budgets/{category}` | `{amount}`; 0 removes the budget |
 

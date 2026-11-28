@@ -25,12 +25,12 @@ Rosie is a self-hosted household management application for planning meals, trac
 | **Overview** | Combined month calendar of meals, chores, bills and spending, with per-layer filters, monthly summary figures and quick entry for any day. |
 | **Chores** | Month calendar and Kanban board views; drag-and-drop rescheduling; *to do → in progress → done* workflow; points per household member; weekly or monthly recurrence. |
 | **Meals** | Monthly meal planner with breakfast, lunch and dinner slots, linked to the recipe collection. |
-| **Expenses** | Daily spend calendar, monthly budgets per category with remaining-budget pacing, bills payable, and receipt scanning. |
+| **Expenses** | Daily spend calendar, monthly budgets per category with remaining-budget pacing, bills payable, and receipt scanning. Receipts can be a photo or the PDF invoice from an online order (Swiggy, BigBasket…); what was read is shown as a table to approve before the expense and its items are saved. Names and units you fix there are remembered and used automatically the next time a scan reads the same line. |
 | **Bills** | Bills are scheduled as chores on their due date. Marking a bill paid records it as an expense; reversing the payment removes that expense. Monthly and yearly bills generate the next occurrence on payment and show upcoming occurrences on the calendar. |
 | **Pantry** | Inventory with low-stock and expiry indicators, item entry from a photograph, and links from purchased items to the originating expense. |
 | **Groceries** | Shopping list filled from a recipe, from the next 7 days of planned meals, or from low pantry stock, adding only what the pantry doesn't already cover (including the shortfall when there's some but not enough). The same item from several recipes is combined; adding a recipe twice doesn't double it. Tick items into the cart, then put them in the pantry in one tap; share or copy the list for whoever is at the shop. |
 | **Recipes** | Recipe collection with ingredients, steps, servings, time and photo. Import from a recipe website link, a photo of a cookbook page or handwritten card, or pasted text; every import is shown for review before it is saved. |
-| **Settings** | Household currency (shared across devices; Indian rupee by default) and per-device dark, light or system theme. |
+| **Settings** | Household currency (shared across devices; Indian rupee by default) and per-device dark, light or system theme. Lists the scan corrections Rosie has remembered, each removable. |
 
 **Multi-user by default.** All devices read and write the same database. Changes are pushed to every open session in real time, and simultaneous changes such as stock adjustments and bill payments are applied safely (see [Architecture](#architecture)). If two people edit the same recipe, pantry item or expense at once, the second to save is told and can keep their version or load the other one, instead of silently overwriting it.
 
@@ -53,11 +53,14 @@ docker compose up -d --build
 
 The application is available at **http://localhost:3000**. Data is stored in `./data/rosie.db` and persists across container rebuilds.
 
-To enable receipt, photo and recipe recognition, install the vision model on the host:
+To enable receipt, photo and recipe recognition, install a vision model and a text model on the host, and set them in `docker-compose.yml` (see [Configuration](#configuration)). The compose file uses:
 
 ```bash
-ollama pull llama3.2-vision
+ollama pull inkling-2-mini
+ollama pull nemotron-3.5-lightning
 ```
+
+Check that your Ollama version can load the vision model: `ollama show <model>` must list `vision` under Capabilities. (`llama3.2-vision` no longer loads on recent Ollama versions.)
 
 ### Update
 
@@ -79,7 +82,8 @@ Environment variables are set in [`docker-compose.yml`](docker-compose.yml).
 | `DATABASE_URL` | `sqlite:///app/data/rosie.db` | SQLite database location (mounted from `./data`). |
 | `TZ` | `Asia/Kolkata` | Household time zone; determines the date recorded when a bill is paid. |
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama endpoint. The container uses host networking so that it can reach an Ollama instance bound to the host's loopback interface. |
-| `OLLAMA_VISION_MODEL` | `llama3.2-vision` | Vision model used for receipts, pantry photos and recipe photos. |
+| `OLLAMA_VISION_MODEL` | `llama3.2-vision` (compose: `inkling-2-mini`) | Vision model used for receipts, pantry photos and recipe photos. Must be a model your Ollama version can load (`ollama show <model>` lists `vision` under Capabilities). |
+| `OLLAMA_VISION_NUM_GPU` | *(Ollama decides)* | Optional. Model layers to put on the graphics card for photo scans; `0` runs a vision model that doesn't fit in graphics memory on the processor instead (slower, about a minute per photo). |
 | `OLLAMA_TEXT_MODEL` | value of `OLLAMA_VISION_MODEL` | Optional. Model used to read recipe text and web pages without recipe data. A smaller text model, such as `qwen2.5:7b`, is faster. |
 | `ALLOWED_HOSTS` | *(none)* | Optional, comma-separated. Extra host names or `*.suffix` entries Rosie will answer to (e.g. `*.your-tailnet.ts.net`). IP addresses, `localhost`, single-word names, `*.local`, `*.lan` and `*.home.arpa` always work. |
 | `TRUST_PROXY` | *(unset)* | Set to `1` when behind a non-loopback TLS reverse proxy so `X-Forwarded-Proto` is honored (loopback proxies are trusted automatically). |

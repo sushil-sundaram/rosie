@@ -24,7 +24,16 @@ services:
       - TZ=Asia/Kolkata
       - DATABASE_URL=sqlite:///app/data/rosie.db
       - OLLAMA_BASE_URL=http://127.0.0.1:11434
-      - OLLAMA_VISION_MODEL=llama3.2-vision
+      # Reads receipts and photos. llama3.2-vision no longer loads on current
+      # Ollama versions; inkling-2-mini does, but needs more graphics memory
+      # than an 8 GB card has, so it runs on the processor (about a minute per photo).
+      - OLLAMA_VISION_MODEL=inkling-2-mini
+      - OLLAMA_VISION_NUM_GPU=0
+      # Reads PDF invoices, pasted recipes and pages without recipe data.
+      # Picked from the installed models by testing on a real Swiggy invoice:
+      # clean item names and the right shop name in ~30-50 s (qwen2.5:7b is
+      # faster at ~10 s but keeps brand names and picks the seller's legal name).
+      - OLLAMA_TEXT_MODEL=nemotron-3.5-lightning
       - RUST_LOG=info
       # Optional household passphrase for sign-in (disabled when unset).
       # - ROSIE_PASSWORD=change-me

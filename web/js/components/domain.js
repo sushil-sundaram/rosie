@@ -9,6 +9,9 @@ import { cal, moveItem } from "./calendar.js";
 
 export const SLOTS = ["breakfast", "lunch", "dinner"];
 export const SLOT_COLOR = { breakfast: "c-yellow", lunch: "c-cyan", dinner: "c-purple" };
+/** Calendar tone per meal slot (see the palette in app.css). */
+export const SLOT_TONE = { breakfast: "t-breakfast", lunch: "t-lunch", dinner: "t-dinner" };
+export const STATUS_TONE = { todo: "t-chore", in_progress: "t-doing", done: "t-done" };
 export const SLOT_LABEL = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner" };
 export const STATUS = ["todo", "in_progress", "done"];
 export const STATUS_LABEL = { todo: "To do", in_progress: "Doing", done: "Done" };
@@ -16,7 +19,8 @@ export const STATUS_COLOR = { todo: "c-orange", in_progress: "c-cyan", done: "c-
 export const STATUS_GLYPH = { todo: "○", in_progress: "◐", done: "●" };
 
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
-export const priorityTag = (p) => h("span.tag", { class: { high: "c-red", medium: "c-orange", low: "c-green" }[p] || "c-muted" }, cap(p));
+/** Only high priority is worth a label; medium and low are the normal case. */
+export const priorityTag = (p) => (p === "high" ? h("span.tag.c-red", "High") : null);
 export const bySlot = (a, b) => SLOTS.indexOf(a.slot) - SLOTS.indexOf(b.slot);
 
 let knownMembers = store.get("members", []);
@@ -145,50 +149,49 @@ export function projected(chores) {
 
 export const ghostChip = (p) => ({
   label: chipLabel(p.chore),
-  cls: `${p.chore.amount ? "c-yellow" : "c-orange"} ghost`,
+  cls: `${p.chore.amount ? "t-bill" : "t-chore"} ghost`,
   title: `${p.chore.title} — Repeats ${p.chore.repeat}, created when the previous one is done`,
 });
 
+/** Change or stop a chore's repeat schedule. */
+export function openRepeatModal(c) {
+  const body = h(
+    "div.stack",
+    h("p.meta", c.repeat ? `${c.title} currently repeats ${(REPEAT_LABEL[c.repeat] || c.repeat).toLowerCase()}.` : `${c.title} happens once. Make it repeat:`),
+    h(
+      "div.move-quick",
+      ["weekly", "monthly", "yearly"].map((r) =>
+        h("button", {
+          type: "button",
+          class: c.repeat === r ? "primary" : null,
+          onclick: async () => {
+            close();
+            if (c.repeat !== r) await setChore(c, { repeat: r });
+          },
+        }, REPEAT_LABEL[r]),
+      ),
+      c.repeat
+        ? h("button.c-red", {
+            type: "button",
+            onclick: async () => {
+              close();
+              await setChore(c, { repeat: "" });
+            },
+          }, "Stop repeating")
+        : null,
+    ),
+  );
+  const { close } = showModal({ title: "Repeat schedule", body, backdropClass: "sheet-mobile" });
+}
+
 export function repeatTag(c) {
   if (!c.repeat) return null;
-  return h("button.tag.linkish.c-purple", {
+  return h("button.tag.linkish", {
     type: "button",
     "aria-label": `${c.title} repeats ${c.repeat}; change or stop repeat`,
     onclick: (e) => {
       e.stopPropagation();
-      const body = h(
-        "div.stack",
-        h("p.meta", `${c.title} currently repeats ${REPEAT_LABEL[c.repeat] || c.repeat}.`),
-        h(
-          "div.move-quick",
-          ["weekly", "monthly", "yearly"].map((r) =>
-            h(
-              "button",
-              {
-                type: "button",
-                class: c.repeat === r ? "primary" : null,
-                onclick: async () => {
-                  close();
-                  if (c.repeat !== r) await setChore(c, { repeat: r });
-                },
-              },
-              REPEAT_LABEL[r],
-            ),
-          ),
-          h(
-            "button.c-red",
-            {
-              type: "button",
-              onclick: async () => {
-                close();
-                await setChore(c, { repeat: "" });
-              },
-            },
-            "Stop repeating",
-          ),
-        ),
-      );
-      const { close } = showModal({ title: "Repeat schedule", body, backdropClass: "sheet-mobile" });
+      openRepeatModal(c);
     },
   }, `↻ ${cap(c.repeat)}`);
 }
@@ -388,14 +391,16 @@ export function billForm(date) {
 
 export function payBillBtn(c) {
   const paid = c.status === "done";
-  return h("button", {
+  return h("button.pay-btn", {
     type: "button",
-    class: paid ? "tag linkish c-green" : "tag linkish c-yellow",
+    class: paid ? "paid" : null,
+    title: paid ? "Paid. Tap to mark unpaid" : "Mark as paid",
+    "aria-label": paid ? `${c.title} is paid; mark unpaid` : `Pay ${c.title}`,
     onclick: (e) => {
       e.stopPropagation();
       setChore(c, { status: paid ? "todo" : "done" });
     },
-  }, paid ? "Paid · Undo" : "Pay");
+  }, paid ? "Paid ✓" : "Pay");
 }
 
 /** Clear status picker: To do / Doing / Done (a native select, so it's easy on phones). */
@@ -409,68 +414,78 @@ export function choreStatusSelect(c) {
   }, STATUS.map((s) => h("option", { value: s, selected: s === c.status }, STATUS_LABEL[s])));
 }
 
-/** Move, Edit and Delete for one chore, behind a "⋯" menu. */
+/** Move, Edit, Repeat and Delete for one chore or bill, behind a "⋯" menu. */
 export function choreMenu(c) {
   return rowMenu(c.title, [
     { label: c.due_date ? "Move to another day" : "Set a day", onSelect: () => openMoveModal({ kind: "chore", id: c.id, label: c.title, currentDate: c.due_date }) },
     { label: "Edit", onSelect: () => openChoreEditModal(c) },
+    { label: c.repeat ? "Change repeat" : "Repeat…", onSelect: () => openRepeatModal(c) },
     { label: "Delete", deletePath: `/chores/${c.id}` },
   ]);
 }
 
-export function choreRow(c) {
+/** "Tanvi · Kitchen · ↻ Weekly": the quiet second line under a chore. */
+export function choreDetails(c, { withDate = false } = {}) {
   const isBill = c.amount != null && c.amount > 0;
   return [
+    c.assigned_to && c.assigned_to !== "Anyone" ? c.assigned_to : null,
+    isBill ? null : c.category,
+    withDate && c.due_date ? fmtDay(c.due_date) : null,
+    c.repeat ? `↻ ${REPEAT_LABEL[c.repeat] || c.repeat}` : null,
+  ].filter(Boolean).join(" · ");
+}
+
+export function choreRow(c) {
+  const isBill = c.amount != null && c.amount > 0;
+  const details = choreDetails(c);
+  return [
     isBill ? payBillBtn(c) : choreStatusSelect(c),
-    h("span.grow",
-      h("span.title", { class: c.status === "done" ? "strike" : null }, c.title),
-      h("span.meta", ` ${c.assigned_to}`)),
-    repeatTag(c),
-    isBill ? null : choreCategoryTag(c.category),
-    isBill
-      ? h("span.tag", { class: c.status === "done" ? "c-green" : "c-yellow" }, c.status === "done" ? `Paid · ${moneyShort(c.amount)}` : `Bill ${moneyShort(c.amount)}`)
-      : priorityTag(c.priority),
+    h("div.grow",
+      h("div.title", { class: c.status === "done" ? "strike" : null }, c.title),
+      details ? h("div.meta", details) : null),
+    isBill ? h("span.num", { class: c.status === "done" ? "c-muted" : null }, moneyShort(c.amount)) : priorityTag(c.priority),
     choreMenu(c),
   ];
 }
 
 export const mealTitleNode = (m) =>
   m.recipe_id
-    ? [
-        h(
-          "a.grow.title.meal-link",
-          {
-            href: "#/recipes",
-            onclick: () => requestRecipeOpen(m.recipe_id),
-          },
-          m.title,
-        ),
-        h(
-          "a.tag.c-cyan",
-          {
-            href: "#/recipes",
-            onclick: () => requestRecipeOpen(m.recipe_id),
-          },
-          "Recipe →",
-        ),
-      ]
+    ? h("a.grow.title.meal-link", {
+        href: "#/recipes",
+        title: "Open recipe",
+        onclick: () => requestRecipeOpen(m.recipe_id),
+      }, m.title)
     : h("span.grow.title", m.title);
 
+/** Move and Delete for a planned meal. */
+export function mealMenu(m) {
+  return rowMenu(m.title, [
+    { label: "Move to another day", onSelect: () => openMoveModal({ kind: "meal", id: m.id, label: m.title, currentDate: m.date }) },
+    m.recipe_id ? { label: "Open recipe", onSelect: () => { requestRecipeOpen(m.recipe_id); location.hash = "#/recipes"; } } : null,
+    { label: "Delete", deletePath: `/meals/${m.id}` },
+  ]);
+}
+
+/** Edit and Delete for an expense. */
+export function expenseMenu(e) {
+  return rowMenu(e.title, [
+    { label: "Edit", onSelect: () => openExpenseEditModal(e) },
+    { label: "Delete", deletePath: `/expenses/${e.id}` },
+  ]);
+}
+
 export const mealRow = (m) => [
-  h("span.tag", { class: SLOT_COLOR[m.slot] || "c-muted" }, SLOT_LABEL[m.slot] || cap(m.slot)),
+  h("span.slot-label", { class: SLOT_TONE[m.slot] }, SLOT_LABEL[m.slot] || cap(m.slot)),
   mealTitleNode(m),
-  moveBtn("meal", m.id, m.title, m.date),
-  delBtn(`/meals/${m.id}`, m.title),
+  mealMenu(m),
 ];
 
 export const expenseRow = (e, linked = 0, fromBill = false) => [
-  h("span.grow.title", e.title),
-  fromBill ? h("a.tag.c-yellow", { href: "#/chores" }, "From bill") : null,
-  linked ? h("a.tag.c-green", { href: "#/pantry" }, `${linked} in pantry`) : null,
-  h("span.tag", { class: CAT_COLOR[e.category] || "c-muted" }, e.category),
+  h("div.grow",
+    h("div.title", e.title),
+    h("div.meta", [e.category, fromBill ? "Bill" : null, linked ? `${linked} in pantry` : null].filter(Boolean).join(" · "))),
   h("span.num", money(e.amount)),
-  editBtn(e.title, () => openExpenseEditModal(e)),
-  delBtn(`/expenses/${e.id}`, e.title),
+  expenseMenu(e),
 ];
 
 export function choreForm(date) {
@@ -487,12 +502,15 @@ export function choreForm(date) {
       }, d.title);
     },
   },
-    h("input", { name: "title", placeholder: "Chore", required: true, autocomplete: "off", "aria-label": "Chore" }),
-    whoField("Anyone", "Assigned to", "w-sm"),
-    choreCategorySelect(),
-    h("select.w-sm", { name: "priority", "aria-label": "Priority" }, ["low", "medium", "high"].map((p) => h("option", { value: p, selected: p === "medium" }, cap(p)))),
-    repeatSelect(["", "weekly", "monthly"], ""),
+    h("input", { name: "title", placeholder: "Add a chore", required: true, autocomplete: "off", "aria-label": "Chore" }),
     h("button.primary", { type: "submit" }, "Add"),
+    h("details.form-more",
+      h("summary", "More options"),
+      h("div.row-fields",
+        whoField("Anyone", "Assigned to", ""),
+        choreCategorySelect(),
+        h("select", { name: "priority", "aria-label": "Priority" }, ["low", "medium", "high"].map((p) => h("option", { value: p, selected: p === "medium" }, `${cap(p)} priority`))),
+        repeatSelect(["", "weekly", "monthly"], ""))),
   );
 }
 
@@ -536,8 +554,21 @@ export function readImage(file, maxSide = 1600) {
 }
 
 /** A button that opens the camera/file picker, sends the photo to `path`, and hands back the JSON. */
-export function photoButton(label, busyText, path, onResult, kindHint = null) {
-  const input = h("input", { type: "file", accept: "image/*", hidden: true });
+/** A PDF goes up as it is (the server reads its text); a photo is shrunk first. */
+function readUpload(file) {
+  const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+  if (!isPdf) return readImage(file);
+  if (file.size > 15 * 1024 * 1024) return Promise.reject(new Error("That PDF is too large (15 MB at most)"));
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).replace(/^data:[^;,]*/, "data:application/pdf"));
+    r.onerror = () => reject(new Error("Could not read that PDF"));
+    r.readAsDataURL(file);
+  });
+}
+
+export function photoButton(label, busyText, path, onResult, kindHint = null, { accept = "image/*" } = {}) {
+  const input = h("input", { type: "file", accept, hidden: true });
   const btn = h("button", { type: "button", onclick: () => input.click() }, label);
   const status = h("span.meta");
   if (kindHint && isJobPending(kindHint)) {
@@ -553,7 +584,7 @@ export function photoButton(label, busyText, path, onResult, kindHint = null) {
     status.textContent = busyText;
     let note = "";
     try {
-      const image_base64 = await readImage(file);
+      const image_base64 = await readUpload(file);
       const result = await submitAiJob(path, { image_base64 }, kindHint);
       note = (await onResult(result)) || "";
     } catch (err) {
@@ -579,22 +610,69 @@ export function setPendingItems(items) {
   pendingItems = items;
 }
 
-export const asPending = (items) => items.map((i) => ({ name: i.name, quantity: i.quantity, unit: i.unit, keep: true }));
+export const asPending = (items) => items.map((i) => ({
+  name: i.name, quantity: i.quantity, unit: i.unit, expires_on: i.expires_on || "", keep: true,
+  // What the scan read and suggested, so edits can be remembered for next time.
+  source: i.source || i.name, suggested: { name: i.name, unit: i.unit }, remembered: !!i.remembered,
+}));
+
+/**
+ * Remembers the names and units someone fixed in a scan review, so the next
+ * scan that reads the same thing uses their version.
+ */
+async function rememberCorrections(items) {
+  const fixed = items
+    .filter((i) => i.keep && i.name.trim() && i.suggested)
+    .filter((i) => i.name.trim().toLowerCase() !== String(i.suggested.name || "").trim().toLowerCase()
+      || (i.unit || "").trim().toLowerCase() !== String(i.suggested.unit || "").trim().toLowerCase())
+    .map((i) => ({ source: i.source, name: i.name.trim(), unit: (i.unit || "").trim() || null }));
+  if (!fixed.length) return 0;
+  try {
+    const out = await api("/corrections", { method: "POST", body: { items: fixed } });
+    return out.saved || 0;
+  } catch {
+    return 0; // remembering is a bonus; the save itself already worked
+  }
+}
+
+const learnedNote = (n) => (n ? ` · remembered ${n} correction${n === 1 ? "" : "s"} for next time` : "");
+
+/** Editable rows of scanned items: tick, name, amount, unit (and expiry for pantry photos). */
+function itemTable(items, { withExpiry = false, onChange = () => {} } = {}) {
+  return h("table.review-table",
+    h("thead", h("tr",
+      h("th", { scope: "col" }, h("span.sr-only", "Keep")),
+      h("th", { scope: "col" }, "Item"),
+      h("th", { scope: "col" }, "Qty"),
+      h("th", { scope: "col" }, "Unit"),
+      withExpiry ? h("th", { scope: "col" }, "Expires") : null)),
+    h("tbody", items.map((it) => h("tr", { class: it.keep ? null : "off" },
+      h("td", h("input", { type: "checkbox", checked: it.keep, "aria-label": `Keep ${it.name}`, onchange: (e) => { it.keep = e.target.checked; e.target.closest("tr").classList.toggle("off", !it.keep); onChange(); } })),
+      h("td", h("input", { value: it.name, "aria-label": "Item name", oninput: (e) => { it.name = e.target.value; } }),
+        it.remembered ? h("span.learned", { title: "Named the way you corrected it last time" }, "✓ your correction") : null),
+      h("td", h("input.qty", { type: "number", step: "any", min: "0", value: it.quantity, "aria-label": `Quantity of ${it.name}`, oninput: (e) => { it.quantity = e.target.value; } })),
+      h("td", h("input.unit", { value: it.unit, "aria-label": `Unit of ${it.name}`, oninput: (e) => { it.unit = e.target.value; } })),
+      withExpiry ? h("td", h("input", { type: "date", value: it.expires_on || "", "aria-label": `Expiry date of ${it.name}`, oninput: (e) => { it.expires_on = e.target.value; } })) : null,
+    ))));
+}
+
+const pantryBody = (chosen) => chosen.map(({ name, quantity, unit, expires_on }) => ({
+  name: name.trim(), quantity: Number(quantity) || 1, unit: (unit || "").trim() || "pcs", expires_on: expires_on || null,
+}));
 
 export function pantryReview() {
   if (!pendingItems || !pendingItems.items.length) return null;
   const p = pendingItems;
   const items = p.items;
+  const fromPhoto = !p.expense_id;
   const confirmAdd = async () => {
     const chosen = items.filter((i) => i.keep && i.name.trim());
     if (!chosen.length) return toast("Nothing selected", true);
     try {
-      const out = await api("/pantry/batch", {
-        method: "POST",
-        body: { expense_id: p.expense_id || null, items: chosen.map(({ name, quantity, unit }) => ({ name: name.trim(), quantity: Number(quantity) || 1, unit: unit.trim() || "pcs" })) },
-      });
+      const out = await api("/pantry/batch", { method: "POST", body: { expense_id: p.expense_id || null, items: pantryBody(chosen) } });
+      const learned = await rememberCorrections(items);
       pendingItems = null;
-      toast(`Pantry: ${out.added} added, ${out.topped_up} topped up`);
+      toast(`Pantry: ${out.added} added, ${out.topped_up} topped up${learnedNote(learned)}`);
       render();
     } catch (err) {
       fail(err);
@@ -602,36 +680,51 @@ export function pantryReview() {
   };
   return h("section.review", { "aria-label": "Review items for the pantry" },
     h("div.spread",
-      h("h3", p.expense_id ? `Add items from ${p.label} to the pantry?` : "Items found in the photo"),
+      h("h3", fromPhoto ? `Found ${items.length} item${items.length === 1 ? "" : "s"} in the photo` : `Add items from ${p.label} to the pantry?`),
       h("button.icon", { onclick: () => { pendingItems = null; render(); }, "aria-label": "Dismiss" }, "×")),
-    h("p.hint", "Edit or untick anything that's wrong; existing items are topped up, not duplicated"),
-    h("ul.list", items.map((it) => h("li",
-      h("input", { type: "checkbox", checked: it.keep, "aria-label": `Keep ${it.name}`, onchange: (e) => { it.keep = e.target.checked; } }),
-      h("input.grow", { value: it.name, "aria-label": "Name", oninput: (e) => { it.name = e.target.value; } }),
-      h("input.w-xs", { type: "number", step: "any", min: "0", value: it.quantity, "aria-label": "Quantity", oninput: (e) => { it.quantity = e.target.value; } }),
-      h("input.w-xs", { value: it.unit, "aria-label": "Unit", oninput: (e) => { it.unit = e.target.value; } }),
-    ))),
+    h("p.hint", fromPhoto
+      ? "Filled in from what could be read on the packs. Fix or untick anything that's wrong; amounts and dates left as guesses can be edited."
+      : "Edit or untick anything that's wrong; existing items are topped up, not duplicated."),
+    itemTable(items, { withExpiry: true }),
     h("div.scan",
       h("button.primary", { onclick: confirmAdd }, "Add to pantry"),
       p.expense_id ? h("span.meta", "Linked to that expense") : null),
   );
 }
 
-export function expenseForm(date, withScan = false) {
-  const r = withScan ? scannedReceipt : null;
-  const day = (r && r.date) || date;
-  const form = h("form.row", {
+/**
+ * A scanned receipt or invoice, shown as a table to check and approve in one
+ * go: the expense (shop, total, category, date) and the items to put in the
+ * pantry. Nothing is saved until "Add" is pressed.
+ */
+function receiptReview(date) {
+  const r = scannedReceipt;
+  const discard = () => { scannedReceipt = null; render(); };
+  const addBtn = h("button.primary", { type: "submit" });
+  const label = () => {
+    const n = r.items.filter((i) => i.keep && i.name.trim()).length;
+    addBtn.textContent = n ? `Add expense and ${n} item${n === 1 ? "" : "s"} to pantry` : "Add expense";
+  };
+  label();
+  const form = h("form.receipt-review", {
     onsubmit: async (e) => {
       e.preventDefault();
-      if (form.dataset.busy) return; // no double submit
-      const d = formData(e.target);
-      const title = d.title.trim();
+      if (form.dataset.busy) return;
+      const title = r.title.trim();
+      if (!title) return toast("Add the shop name", true);
+      if (!(Number(r.amount) > 0)) return toast("Add the total", true);
       form.dataset.busy = "1";
       try {
-        const out = await api("/expenses", { method: "POST", body: { title, amount: Number(d.amount), category: d.category, date: d.date || date } });
-        toast(`Added ${title}`);
-        if (r && r.items.length) pendingItems = { expense_id: out.id, label: title, items: asPending(r.items) };
-        if (r) scannedReceipt = null;
+        const out = await api("/expenses", { method: "POST", body: { title, amount: Number(r.amount), category: r.category, date: r.date || date } });
+        const chosen = r.items.filter((i) => i.keep && i.name.trim());
+        let note = "";
+        if (chosen.length) {
+          const p = await api("/pantry/batch", { method: "POST", body: { expense_id: out.id, items: pantryBody(chosen) } });
+          note = ` · pantry: ${p.added} added, ${p.topped_up} topped up`;
+        }
+        const learned = await rememberCorrections(r.items);
+        scannedReceipt = null;
+        toast(`Added ${title}${note}${learnedNote(learned)}`);
         render();
       } catch (err) {
         fail(err);
@@ -640,34 +733,71 @@ export function expenseForm(date, withScan = false) {
       }
     },
   },
-    h("input", { name: "title", placeholder: "What", required: true, autocomplete: "off", "aria-label": "Expense", value: r ? r.title : null }),
-    h("input.w-sm", { name: "amount", type: "number", step: "any", min: "0", placeholder: "0.00", required: true, "aria-label": "Amount", value: r && r.amount ? r.amount : null }),
-    h("select.w-sm", { name: "category", "aria-label": "Category" },
-      CATEGORIES.map((c) => h("option", { value: c, selected: r && r.category === c }, c))),
-    h("input.w-date", { name: "date", type: "date", value: day, required: true, "aria-label": "Date" }),
+    h("div.spread", h("h3", "Check the scanned receipt"), h("button.icon", { type: "button", onclick: discard, "aria-label": "Discard scan" }, "×")),
+    h("div.receipt-fields",
+      h("label.field", h("span.meta", "Shop"), h("input", { value: r.title, required: true, oninput: (e) => { r.title = e.target.value; } })),
+      h("label.field", h("span.meta", "Total"), h("input", { type: "number", step: "any", min: "0", value: r.amount || "", required: true, oninput: (e) => { r.amount = e.target.value; } })),
+      h("label.field", h("span.meta", "Category"), h("select", { onchange: (e) => { r.category = e.target.value; } },
+        CATEGORIES.map((c) => h("option", { value: c, selected: r.category === c }, c)))),
+      h("label.field", h("span.meta", "Date"), h("input", { type: "date", value: r.date || date, oninput: (e) => { r.date = e.target.value; } }))),
+    r.expected && r.items.length < r.expected
+      ? h("p.hint.c-orange", `The invoice lists ${r.expected} items but ${r.items.length} were read. Add any that are missing below.`)
+      : null,
+    r.items.length
+      ? [h("p.hint", `${r.items.length} item${r.items.length === 1 ? "" : "s"} found. Ticked ones go to the pantry, linked to this expense; edit or untick any that are wrong. Rosie remembers your fixes for next time.`),
+         itemTable(r.items, { onChange: label })]
+      : h("p.hint", "No pantry items found on this receipt."),
+    h("button.link", { type: "button", onclick: () => { r.items.push({ name: "", quantity: 1, unit: "pcs", expires_on: "", keep: true }); render(); } }, "+ Add a row"),
+    h("div.scan", addBtn, h("button", { type: "button", onclick: discard }, "Discard")),
+  );
+  return form;
+}
+
+/** Photos and PDF invoices (online orders usually send PDFs). */
+export const RECEIPT_FILES = "image/*,application/pdf,.pdf";
+
+/** Puts a scan result into the review table on the Expenses page. */
+export function showReceiptReview(out) {
+  scannedReceipt = {
+    title: out.title || "",
+    amount: out.amount || "",
+    category: CATEGORIES.includes(out.category) ? out.category : "Other",
+    date: /^\d{4}-\d{2}-\d{2}$/.test(out.date || "") ? out.date : "",
+    items: asPending(out.items || []),
+    expected: Number(out.expected_items) || 0,
+  };
+}
+
+export function expenseForm(date, withScan = false) {
+  if (withScan && scannedReceipt) return receiptReview(date);
+  const form = h("form.row", {
+    onsubmit: async (e) => {
+      e.preventDefault();
+      if (form.dataset.busy) return; // no double submit
+      const d = formData(e.target);
+      const title = d.title.trim();
+      form.dataset.busy = "1";
+      try {
+        await api("/expenses", { method: "POST", body: { title, amount: Number(d.amount), category: d.category, date: d.date || date } });
+        toast(`Added ${title}`);
+        render();
+      } catch (err) { fail(err); } finally { delete form.dataset.busy; }
+    },
+  },
+    h("input", { name: "title", placeholder: "What", required: true, autocomplete: "off", "aria-label": "Expense" }),
+    h("input.w-sm", { name: "amount", type: "number", step: "any", min: "0", placeholder: "0.00", required: true, "aria-label": "Amount" }),
+    h("select.w-sm", { name: "category", "aria-label": "Category" }, CATEGORIES.map((c) => h("option", { value: c }, c))),
+    h("input", { name: "date", type: "hidden", value: date }),
     h("button.primary", { type: "submit" }, "Add"),
   );
   if (!withScan) return form;
 
-  const scan = photoButton("Scan receipt", "Reading receipt", "/expenses/scan-receipt", (out) => {
-    scannedReceipt = {
-      title: out.title || "",
-      amount: out.amount || "",
-      category: CATEGORIES.includes(out.category) ? out.category : "Other",
-      date: /^\d{4}-\d{2}-\d{2}$/.test(out.date || "") ? out.date : null,
-      items: out.items || [],
-    };
-    toast("Receipt read — check it, then add");
+  const scan = photoButton("Scan receipt or invoice", "Reading it — usually under a minute", "/expenses/scan-receipt", (out) => {
+    showReceiptReview(out);
+    toast("Read it — check and approve below");
     render();
     return "";
-  }, "receipt");
+  }, "receipt", { accept: RECEIPT_FILES });
 
-  const notes = [];
-  if (r) {
-    if (r.date && r.date !== date) notes.push(`Dated ${fmtDay(r.date)} — saved on that day`);
-    if (r.items.length) notes.push(`${r.items.length} item${r.items.length > 1 ? "s" : ""} can go to the pantry after you add`);
-  }
-  return h("div", form, scan,
-    r ? h("p.hint", "Scanned receipt — check it, then add", notes.length ? ` · ${notes.join(" · ")}` : "", " · ",
-      h("button.link", { type: "button", onclick: () => { scannedReceipt = null; render(); } }, "Discard")) : null);
+  return h("div", form, scan, h("p.hint", "A photo of a bill, or the PDF invoice from an online order."));
 }

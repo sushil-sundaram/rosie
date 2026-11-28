@@ -7,8 +7,7 @@ import { showModal } from "../shortcuts.js";
 import { cached } from "../store.js";
 import { cal } from "./calendar.js";
 import {
-  asPending, choreCategorySelect, photoButton, rememberMember, repeatSelect,
-  setPendingItems, SLOTS, SLOT_LABEL, syncMembers, whoField,
+  asPending, choreCategorySelect, photoButton, rememberMember, repeatSelect, setPendingItems, SLOTS, SLOT_LABEL, syncMembers, whoField, showReceiptReview, RECEIPT_FILES,
 } from "./domain.js";
 
 function routeDefaultKind() {
@@ -22,7 +21,6 @@ export function openQuickAdd() {
 
   let kind = routeDefaultKind();
   let recipes = [];
-  let receiptDraft = null;
   const wrap = h("div.quick-add-body");
   const defaultDate = cal.sel || today();
 
@@ -76,58 +74,15 @@ export function openQuickAdd() {
         h("button.primary", { type: "submit" }, "Add expense"),
       );
     } else if (kind === "receipt") {
-      const scanBtn = photoButton("Scan receipt", "Reading receipt", "/expenses/scan-receipt", (out) => {
-        receiptDraft = {
-          title: out.title || "",
-          amount: out.amount || "",
-          category: CATEGORIES.includes(out.category) ? out.category : "Other",
-          date: /^\d{4}-\d{2}-\d{2}$/.test(out.date || "") ? out.date : defaultDate,
-          items: out.items || [],
-        };
-        toast("Receipt read — check details, then save");
-        renderBody();
-      }, "receipt");
-      form = h(
-        "div.stack",
-        scanBtn,
-        receiptDraft ? h(
-          "form.stack",
-          {
-            onsubmit: async (e) => {
-              e.preventDefault();
-              const d = formData(e.target);
-              const title = d.title.trim();
-              try {
-                const out = await api("/expenses", {
-                  method: "POST",
-                  body: { title, amount: Number(d.amount), category: d.category, date: d.date || defaultDate },
-                });
-                toast(`Added ${title}`);
-                if (receiptDraft.items && receiptDraft.items.length) {
-                  setPendingItems({ expense_id: out.id, label: title, items: asPending(receiptDraft.items) });
-                  close();
-                  if (!location.hash.startsWith("#/expenses")) location.hash = "#/expenses";
-                  else render();
-                  return;
-                }
-                close();
-                render();
-              } catch (err) {
-                fail(err);
-              }
-            },
-          },
-          h("input", { name: "title", placeholder: "Merchant or description", required: true, value: receiptDraft.title, "aria-label": "Merchant" }),
-          h(
-            "div.row-fields",
-            h("input", { name: "amount", type: "number", step: "any", min: "0", required: true, value: receiptDraft.amount, "aria-label": "Amount" }),
-            h("select", { name: "category", "aria-label": "Category" }, CATEGORIES.map((c) => h("option", { value: c, selected: receiptDraft.category === c }, c))),
-            h("input", { name: "date", type: "date", value: receiptDraft.date, "aria-label": "Date" }),
-          ),
-          receiptDraft.items?.length ? h("p.hint", `${receiptDraft.items.length} pantry item(s) ready to review after saving`) : null,
-          h("button.primary", { type: "submit" }, "Save expense"),
-        ) : h("p.hint", "Take or choose a receipt photo to extract expense & pantry items."),
-      );
+      // Same review table as the Expenses page: the scan opens it there.
+      const scanBtn = photoButton("Scan receipt or invoice", "Reading it — usually under a minute", "/expenses/scan-receipt", (out) => {
+        showReceiptReview(out);
+        toast("Read it — check and approve on Expenses");
+        close();
+        if (!location.hash.startsWith("#/expenses")) location.hash = "#/expenses";
+        else render();
+      }, "receipt", { accept: RECEIPT_FILES });
+      form = h("div.stack", scanBtn, h("p.hint", "A photo of a bill, or the PDF invoice from an online order. You'll check what was read before anything is saved."));
     } else if (kind === "pantry") {
       form = h(
         "form.stack",

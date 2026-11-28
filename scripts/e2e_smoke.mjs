@@ -293,7 +293,10 @@ async function runBrowserSuite(baseUrl) {
     );
     const filteredText = await client.eval(ctx, `return document.querySelector(".pantry-list-wrap").textContent;`);
     assert.ok(filteredText.includes("Olive oil"), "Pantry search should keep matching 'Olive oil'");
-    await client.eval(ctx, `document.querySelector(".pantry-list-wrap button[aria-label^='Edit']").click();`);
+    // Edit lives in each row's "⋯" menu.
+    await client.eval(ctx, `document.querySelector(".pantry-list-wrap .menu-btn").click();`);
+    await waitForSelector(client, ctx, ".row-menu");
+    await client.eval(ctx, `[...document.querySelectorAll(".row-menu button")].find((b) => b.textContent === "Edit").click();`);
     await waitForSelector(client, ctx, ".modal-backdrop[data-modal]");
     await client.eval(ctx, `document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));`);
 

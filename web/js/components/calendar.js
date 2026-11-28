@@ -218,7 +218,7 @@ export function split(mainKids, panelKids, opts = {}) {
     h("aside.panel", { "aria-label": `Selected day ${fmtDay(cal.sel)}` },
       h("div.panel-head",
         h("h3", fmtDay(cal.sel)),
-        cal.sel === today() ? h("span.tag.c-pink", "Today") : null,
+        cal.sel === today() ? h("span.meta", "Today") : null,
       ),
       panelKids,
     ),

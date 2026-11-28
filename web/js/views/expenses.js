@@ -6,12 +6,12 @@ import { render } from "../router.js";
 import { cached } from "../store.js";
 import { cal, calendar, gridRange, inMonth, monthKey, moveItem, split } from "../components/calendar.js";
 import {
-  billForm, chipLabel, editBtn, expenseForm, expenseRow, ghostChip,
-  moveBtn, openChoreEditModal, pantryReview, payBillBtn, projected, repeatTag, syncMembers,
+  billForm, chipLabel, editBtn, expenseForm, expenseRow, ghostChip, moveBtn, openChoreEditModal, pantryReview, payBillBtn, projected, repeatTag, syncMembers, choreMenu, choreDetails,
 } from "../components/domain.js";
 
 let expenseAdd = "expense";
-const budgetColor = (spent, budget) => (!budget ? "var(--muted)" : cents(spent) > cents(budget) ? "var(--red)" : cents(spent) >= cents(budget) * 0.8 ? "var(--orange)" : "var(--green)");
+/** Bars stay grey while things are fine; orange near the limit, red over it. */
+const budgetColor = (spent, budget) => (!budget ? "var(--line)" : cents(spent) > cents(budget) ? "var(--red)" : cents(spent) >= cents(budget) * 0.8 ? "var(--orange)" : "var(--muted)");
 
 export async function expensesView(root) {
   const { from, to } = gridRange();
@@ -64,7 +64,7 @@ export async function expensesView(root) {
     const pct = budget ? Math.min(100, (spent / budget) * 100) : 0;
     let savedValue = initial;
     let saving = false;
-    const saveBtn = h("button.tag.linkish.c-purple.budget-save", { type: "submit", hidden: true }, "Save");
+    const saveBtn = h("button.tag.linkish.budget-save", { type: "submit", hidden: true }, "Save");
     const input = h("input.budget", {
       type: "number", min: "0", step: "any", value: initial, placeholder: "Set",
       "aria-label": `Monthly budget for ${cat}`,
@@ -84,7 +84,7 @@ export async function expensesView(root) {
     };
     return h("li", h("div.grow",
       h("div.spread",
-        h("span", { class: CAT_COLOR[cat] }, cat),
+        h("span", cat),
         h("form.budget-nums",
           {
             onsubmit: (e) => {
@@ -110,13 +110,13 @@ export async function expensesView(root) {
         chipsFor: (ds) => {
           const out = [];
           const tt = dayTotal(ds);
-          if (tt) out.push({ label: moneyShort(tt), cls: "c-pink", title: `Spent ${money(tt)}` });
-          unpaid.filter((c) => c.due_date === ds).forEach((c) => out.push({ label: chipLabel(c), cls: ds < t ? "c-red" : "c-yellow", kind: "chore", id: c.id, title: `Bill due: ${c.title} ${money(c.amount)}` }));
+          if (tt) out.push({ label: moneyShort(tt), cls: "t-spend", title: `Spent ${money(tt)}` });
+          unpaid.filter((c) => c.due_date === ds).forEach((c) => out.push({ label: chipLabel(c), cls: ds < t ? "c-red" : "t-bill", kind: "chore", id: c.id, title: `Bill due: ${c.title} ${money(c.amount)}` }));
           billGhosts.filter((p) => p.date === ds).forEach((p) => out.push(ghostChip(p)));
           return out;
         },
         onMove: moveItem,
-        legend: [["Spent", "c-pink"], ["Bill due", "c-yellow"], ["Bill overdue", "c-red"], ["Upcoming repeat", "c-muted ghost"]],
+        legend: [["Spent", "t-spend"], ["Bill due", "t-bill"], ["Bill overdue", "c-red"], ["Upcoming repeat", "t-bill ghost"]],
       }),
 
       h("h2", "Budget"),
@@ -128,7 +128,7 @@ export async function expensesView(root) {
           : `Over by ${moneyShort(-remaining)}`) : h("span.meta", "Set a monthly amount per category below"),
       ),
       budgetTotal ? h("div.bar.big", h("i", { style: `width:${Math.min(100, (total / budgetTotal) * 100)}%;background:${budgetColor(total, budgetTotal)}` })) : null,
-      stillDue ? h("p.hint", h("span.c-yellow", moneyShort(stillDue)), " in bills still due this month",
+      stillDue ? h("p.hint", h("span.num", moneyShort(stillDue)), " in bills still due this month",
         budgetTotal ? ` · ${moneyShort(budgetTotal - total - stillDue)} free after bills` : "") : null,
       h("p.hint", "Tap a budget amount below and press Enter or tap Save to update."),
       h("ul.list", CATEGORIES.filter((c) => budgetOf[c] || spentBy[c]).concat(CATEGORIES.filter((c) => !budgetOf[c] && !spentBy[c]))
@@ -137,13 +137,10 @@ export async function expensesView(root) {
       h("h2", "Bills to pay"),
       list(unpaid, (c) => [
         h("span.meta.num", { class: c.due_date && c.due_date < t ? "c-red" : null }, c.due_date ? (c.due_date < t ? `Overdue ${fmtDay(c.due_date)}` : fmtDay(c.due_date)) : "No date"),
-        h("span.grow.title", c.title),
-        repeatTag(c),
+        h("div.grow", h("div.title", c.title), choreDetails(c) ? h("div.meta", choreDetails(c)) : null),
         h("span.num", money(c.amount)),
-        moveBtn("chore", c.id, c.title, c.due_date),
-        editBtn(c.title, () => openChoreEditModal(c)),
         payBillBtn(c),
-        delBtn(`/chores/${c.id}`, c.title),
+        choreMenu(c),
       ], "No bills due"),
     ],
     [
@@ -151,9 +148,8 @@ export async function expensesView(root) {
       day.length ? [list(day, (e) => expenseRow(e, linkedCount(e), paidBillExpenseIds.has(e.id))), h("p.total.right", h("span.num", money(dayTotal(cal.sel))))] : h("p.empty", "Nothing spent"),
       dayBills.length ? section("Bills due", list(dayBills, (c) => [
         h("span.grow.title", c.title), h("span.num", money(c.amount)),
-        moveBtn("chore", c.id, c.title, c.due_date),
-        editBtn(c.title, () => openChoreEditModal(c)),
         payBillBtn(c),
+        choreMenu(c),
       ])) : null,
       h("h2", "Add"),
       segmented([["expense", "Expense"], ["bill", "Bill to pay"]], expenseAdd, (k) => { expenseAdd = k; render(); }, "Add type"),
