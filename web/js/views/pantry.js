@@ -92,15 +92,16 @@ export async function pantryView(root) {
     const { close } = showModal({ title: "Edit pantry item", body: form, backdropClass: "sheet-mobile" });
   };
 
-  const expiryTag = (p) => {
+  /** "Expired" / "Expires Mon 30 Nov": red once past, orange within 3 days, else quiet. */
+  const expiryNote = (p) => {
     if (!p.expires_on) return null;
-    const cls = p.expires_on < t ? "c-red" : p.expires_on <= addDays(t, 3) ? "c-orange" : "c-muted";
-    return h("span.tag", { class: cls, title: `Expires ${p.expires_on}` }, p.expires_on < t ? "Expired" : `Exp ${fmtDay(p.expires_on)}`);
+    const cls = p.expires_on < t ? "c-red" : p.expires_on <= addDays(t, 3) ? "c-orange" : null;
+    return h("span", { class: cls, title: `Expires ${p.expires_on}` }, p.expires_on < t ? "Expired" : `Expires ${fmtDay(p.expires_on)}`);
   };
   const boughtTag = (p) => {
     const e = byId[p.expense_id];
     if (!e) return null;
-    return h("a.tag.c-pink", {
+    return h("a.bought-link", {
       href: "#/expenses", title: `Bought with ${e.title} (${money(e.amount)}) — open in Expenses`,
       onclick: () => {
         cal.sel = e.date;
@@ -108,7 +109,7 @@ export async function pantryView(root) {
         cal.y = d.getFullYear();
         cal.m = d.getMonth();
       },
-    }, `Bought ${fmtDay(e.date)}`);
+    }, `Bought ${parseISO(e.date).toLocaleDateString(undefined, { day: "numeric", month: "short" })}`);
   };
 
   // Recent expenses a manual add can be linked to.
@@ -172,18 +173,28 @@ export async function pantryView(root) {
       ? "No matching pantry items"
       : "Your pantry is empty — add items, or snap a photo of your groceries";
     listWrap.replaceChildren(
-      list(visible, (it) => [
-        h("span.grow.title", it.name),
-        expiryTag(it),
-        boughtTag(it),
-        h("button.icon", { title: "Decrease", "aria-label": `Decrease ${it.name}`, onclick: () => adjust(it, -1), disabled: it.quantity <= 0 }, "−"),
-        h("span.num", { class: isPantryLow(it) ? "c-red" : null, title: isPantryLow(it) ? "Running low" : null }, `${fmtQty(it.quantity)} ${it.unit}`),
-        h("button.icon", { title: "Increase", "aria-label": `Increase ${it.name}`, onclick: () => adjust(it, 1) }, "+"),
-        rowMenu(it.name, [
-          { label: "Edit", onSelect: () => openEditModal(it) },
-          { label: "Delete", deletePath: `/pantry/${it.id}` },
-        ]),
-      ], emptyMsg),
+      list(visible, (it) => {
+        const lowNow = isPantryLow(it);
+        // Name on top; a quiet line under it says what's worth knowing.
+        const notes = [
+          Number(it.quantity) <= 0 ? h("span.c-red", "Out") : lowNow ? h("span.c-red", "Running low") : null,
+          expiryNote(it),
+          boughtTag(it),
+        ].filter(Boolean);
+        return [
+          h("div.grow.pantry-item",
+            h("div.title", it.name),
+            notes.length ? h("div.meta", notes.flatMap((n, i) => (i ? [" · ", n] : [n]))) : null),
+          h("div.stepper", { role: "group", "aria-label": `Amount of ${it.name}` },
+            h("button", { type: "button", title: "One less", "aria-label": `One less ${it.name}`, onclick: () => adjust(it, -1), disabled: it.quantity <= 0 }, "−"),
+            h("span.num", { class: lowNow ? "c-red" : null }, fmtQty(it.quantity), h("small", ` ${it.unit}`)),
+            h("button", { type: "button", title: "One more", "aria-label": `One more ${it.name}`, onclick: () => adjust(it, 1) }, "+")),
+          rowMenu(it.name, [
+            { label: "Edit", onSelect: () => openEditModal(it) },
+            { label: "Delete", deletePath: `/pantry/${it.id}` },
+          ]),
+        ];
+      }, emptyMsg),
     );
   };
 
