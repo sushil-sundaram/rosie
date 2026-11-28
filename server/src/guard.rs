@@ -136,7 +136,10 @@ fn expected_scheme(req: &Request) -> &'static str {
     "http"
 }
 
-const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
+// `blob:` lets the page show a photo the user just picked so it can shrink it
+// before uploading (receipts, pantry and recipe photos); such URLs can only
+// point at data already in this page.
+const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; \
                    connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
 fn with_security_headers(mut res: Response) -> Response {
@@ -208,6 +211,12 @@ pub async fn guard(req: Request, next: Next) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn photos_picked_in_the_page_can_be_shown() {
+        // Photo scans shrink the picked image via a blob: URL before upload.
+        assert!(CSP.contains("img-src 'self' data: blob:"), "{CSP}");
+    }
     use axum::{body::Body, routing::post, Router};
     use tower::Service;
 

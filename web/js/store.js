@@ -159,6 +159,11 @@ export function invalidateForPath(path) {
     markPrefixDirty("pantry");
   } else if (p.startsWith("/budgets")) markPrefixDirty("budgets");
   else if (p.startsWith("/settings")) markPrefixDirty("settings");
+  else if (p.startsWith("/groceries")) {
+    markPrefixDirty("groceries");
+    // "Put in pantry" moves items into the pantry.
+    if (p.startsWith("/groceries/to-pantry")) markPrefixDirty("pantry");
+  }
   else invalidateAll();
 }
 

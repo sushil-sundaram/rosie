@@ -221,7 +221,7 @@ async function runBrowserSuite(baseUrl) {
       const bnav = getComputedStyle(document.getElementById("bottom-nav")).display;
       const btabs = [...document.querySelectorAll("#bottom-nav a")].map((a) => {
         const r = a.getBoundingClientRect();
-        return { text: a.textContent.trim(), w: r.width, h: r.height };
+        return { text: a.textContent.trim(), w: r.width, h: r.height, top: Math.round(r.top) };
       });
       const fab = document.getElementById("quick-add-fab").getBoundingClientRect();
       const weekTop = document.querySelector(".home-mobile-top").getBoundingClientRect().top;
@@ -233,7 +233,8 @@ async function runBrowserSuite(baseUrl) {
     );
     assert.equal(mobileLayout.nav, "none", "Desktop top nav should be hidden on 390px mobile");
     assert.notEqual(mobileLayout.bnav, "none", "Bottom nav should be visible on 390px mobile");
-    assert.equal(mobileLayout.btabs.length, 6);
+    assert.equal(mobileLayout.btabs.length, 7);
+    assert.equal(new Set(mobileLayout.btabs.map((t) => t.top)).size, 1, "Bottom nav tabs should fit on one row");
     for (const tab of mobileLayout.btabs) {
       assert.ok(tab.w >= 44 && tab.h >= 44, `Bottom nav tab '${tab.text}' too small: ${tab.w}x${tab.h}`);
     }
@@ -268,7 +269,7 @@ async function runBrowserSuite(baseUrl) {
     assert.equal(quickClosed, true, "Quick Add sheet should close after creating Pantry item");
 
     // Check every route on mobile viewport for clean render + zero horizontal overflow
-    for (const hash of ["#/pantry", "#/meals", "#/recipes", "#/chores", "#/expenses", "#/settings"]) {
+    for (const hash of ["#/pantry", "#/groceries", "#/meals", "#/recipes", "#/chores", "#/expenses", "#/settings"]) {
       await client.eval(ctx, `location.hash = ${JSON.stringify(hash)};`);
       await new Promise((r) => setTimeout(r, 200));
       const check = await client.eval(
@@ -292,7 +293,10 @@ async function runBrowserSuite(baseUrl) {
     );
     const filteredText = await client.eval(ctx, `return document.querySelector(".pantry-list-wrap").textContent;`);
     assert.ok(filteredText.includes("Olive oil"), "Pantry search should keep matching 'Olive oil'");
-    await client.eval(ctx, `document.querySelector(".pantry-list-wrap button[aria-label^='Edit']").click();`);
+    // Edit lives in each row's "⋯" menu.
+    await client.eval(ctx, `document.querySelector(".pantry-list-wrap .menu-btn").click();`);
+    await waitForSelector(client, ctx, ".row-menu");
+    await client.eval(ctx, `[...document.querySelectorAll(".row-menu button")].find((b) => b.textContent === "Edit").click();`);
     await waitForSelector(client, ctx, ".modal-backdrop[data-modal]");
     await client.eval(ctx, `document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));`);
 
@@ -317,7 +321,7 @@ async function runBrowserSuite(baseUrl) {
       viewport: { width: 1280, height: 800 },
       devicePixelRatio: 1,
     });
-    for (const hash of ["#/", "#/pantry", "#/meals", "#/recipes", "#/chores", "#/expenses", "#/settings"]) {
+    for (const hash of ["#/", "#/pantry", "#/groceries", "#/meals", "#/recipes", "#/chores", "#/expenses", "#/settings"]) {
       await client.eval(ctx, `location.hash = ${JSON.stringify(hash)};`);
       await new Promise((r) => setTimeout(r, 200));
       const check = await client.eval(

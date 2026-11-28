@@ -5,6 +5,7 @@ const GO_ROUTES = {
   p: "#/pantry",
   m: "#/meals",
   r: "#/recipes",
+  l: "#/groceries",
   c: "#/chores",
   e: "#/expenses",
   s: "#/settings",
@@ -13,6 +14,7 @@ const GO_ROUTES = {
 const SHORTCUT_ITEMS = [
   ["g h", "Go to Home"],
   ["g p", "Go to Pantry"],
+  ["g l", "Go to Groceries list"],
   ["g m", "Go to Meals"],
   ["g r", "Go to Recipes"],
   ["g c", "Go to Chores"],

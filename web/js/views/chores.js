@@ -5,8 +5,7 @@ import { render } from "../router.js";
 import { cached } from "../store.js";
 import { cal, calendar, dragData, moveItem, split } from "../components/calendar.js";
 import {
-  chipLabel, choreCategoryTag, choreForm, choreRow, editBtn, ghostChip, moveBtn, openChoreEditModal,
-  payBillBtn, priorityTag, projected, repeatTag, setChore, STATUS, STATUS_COLOR, STATUS_LABEL, syncMembers,
+  chipLabel, choreCategoryTag, choreForm, choreRow, editBtn, ghostChip, moveBtn, openChoreEditModal, payBillBtn, priorityTag, projected, repeatTag, setChore, STATUS, STATUS_COLOR, STATUS_LABEL, syncMembers, choreMenu, choreDetails, STATUS_TONE,
 } from "../components/domain.js";
 
 function board(chores) {
@@ -18,14 +17,11 @@ function board(chores) {
     return h("div.col",
       h("h3", h("span", { class: STATUS_COLOR[key] }, STATUS_LABEL[key]), h("span.c-muted", items.length)),
       items.length ? items.map((c) => h("div.card",
-        h("div.title", c.title),
-        h("div.meta", `${c.assigned_to}${c.due_date ? " · " + fmtDay(c.due_date) : ""} `, choreCategoryTag(c.category), " ", priorityTag(c.priority), " ", repeatTag(c)),
+        h("div.spread", h("div.title", c.title), choreMenu(c)),
+        h("div.meta", choreDetails(c, { withDate: true }), " ", priorityTag(c.priority)),
         h("div.actions",
-          h("button.icon", { onclick: () => setChore(c, { status: STATUS[i - 1] }), disabled: i === 0, "aria-label": "Move back" }, "←"),
-          moveBtn("chore", c.id, c.title, c.due_date),
-          editBtn(c.title, () => openChoreEditModal(c)),
-          delBtn(`/chores/${c.id}`, c.title),
-          h("button.icon", { onclick: () => setChore(c, { status: STATUS[i + 1] }), disabled: i === STATUS.length - 1, "aria-label": "Move forward" }, "→"),
+          h("button.icon", { onclick: () => setChore(c, { status: STATUS[i - 1] }), disabled: i === 0, "aria-label": `Move ${c.title} back to ${STATUS_LABEL[STATUS[i - 1]] || ""}` }, "←"),
+          h("button.icon", { onclick: () => setChore(c, { status: STATUS[i + 1] }), disabled: i === STATUS.length - 1, "aria-label": `Move ${c.title} on to ${STATUS_LABEL[STATUS[i + 1]] || ""}` }, "→"),
         ),
       )) : h("p.empty", "—"),
     );
@@ -45,15 +41,11 @@ function board(chores) {
         items.length ? items.map((c) => h("div.card",
           h("div.spread",
             h("span.title", c.title),
-            h("span.tag", { class: c.status === "done" ? "c-green" : "c-yellow" }, c.status === "done" ? `Paid · ${moneyShort(c.amount)}` : `Bill ${moneyShort(c.amount)}`),
+            h("span.num", moneyShort(c.amount)),
+            choreMenu(c),
           ),
-          h("div.meta", `${c.assigned_to}${c.category ? ` · ${c.category}` : ""}${c.due_date ? " · " + fmtDay(c.due_date) : ""} `, repeatTag(c)),
-          h("div.actions",
-            payBillBtn(c),
-            moveBtn("chore", c.id, c.title, c.due_date),
-            editBtn(c.title, () => openChoreEditModal(c)),
-            delBtn(`/chores/${c.id}`, c.title),
-          ),
+          h("div.meta", [c.category, choreDetails(c, { withDate: true })].filter(Boolean).join(" · ")),
+          h("div.actions", payBillBtn(c)),
         )) : h("p.empty", "—"),
       ),
     )),
@@ -87,11 +79,11 @@ export async function choresView(root) {
     [
       calendar({
         chipsFor: (ds) => chores.filter((c) => c.due_date === ds).map((c) => ({
-          label: chipLabel(c), cls: STATUS_COLOR[c.status], kind: "chore", id: c.id, done: c.status === "done",
+          label: chipLabel(c), cls: c.amount ? "t-bill" : STATUS_TONE[c.status], kind: "chore", id: c.id, done: c.status === "done",
           title: `${c.title} · ${c.assigned_to} · ${STATUS_LABEL[c.status]}`,
         })).concat(ghosts.filter((p) => p.date === ds).map(ghostChip)),
         onMove: moveItem,
-        legend: [...STATUS.map((s) => [STATUS_LABEL[s], STATUS_COLOR[s]]), ["Upcoming repeat", "c-muted ghost"]],
+        legend: [...STATUS.map((s) => [STATUS_LABEL[s], STATUS_TONE[s]]), ["Bill", "t-bill"], ["Upcoming repeat", "t-chore ghost"]],
       }),
     ],
     [

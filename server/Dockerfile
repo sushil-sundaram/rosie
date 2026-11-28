@@ -18,7 +18,7 @@ RUN touch src/main.rs && cargo build --release
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tzdata \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tzdata poppler-utils \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --uid 1000 --user-group --no-create-home --shell /usr/sbin/nologin rosie \
     && mkdir -p /app/data && chown rosie:rosie /app/data

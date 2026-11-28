@@ -1,7 +1,7 @@
 import { delBtn, eyebrow, h } from "../dom.js";
 import { cached } from "../store.js";
 import { cal, calendar, gridRange, inMonth, monthKey, moveItem, split } from "../components/calendar.js";
-import { bySlot, mealForm, mealTitleNode, moveBtn, SLOT_COLOR, SLOTS } from "../components/domain.js";
+import { bySlot, mealForm, mealMenu, mealTitleNode, SLOT_TONE, SLOTS } from "../components/domain.js";
 
 const SLOT_LABEL = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner" };
 
@@ -16,16 +16,16 @@ export async function mealsView(root) {
   root.append(eyebrow(`Meals · ${meals.filter((m) => inMonth(m.date)).length} planned this month`), split(
     [calendar({
       chipsFor: (ds) => meals.filter((m) => m.date === ds).sort(bySlot)
-        .map((m) => ({ label: m.title, cls: SLOT_COLOR[m.slot], kind: "meal", id: m.id, title: `${SLOT_LABEL[m.slot] || m.slot}: ${m.title}` })),
+        .map((m) => ({ label: m.title, cls: SLOT_TONE[m.slot], kind: "meal", id: m.id, title: `${SLOT_LABEL[m.slot] || m.slot}: ${m.title}` })),
       onMove: moveItem,
-      legend: SLOTS.map((s) => [SLOT_LABEL[s] || s, SLOT_COLOR[s]]),
+      legend: SLOTS.map((s) => [SLOT_LABEL[s] || s, SLOT_TONE[s]]),
     })],
     [
       SLOTS.map((s) => {
         const items = day.filter((m) => m.slot === s);
         return h("div.slot",
-          h("span.tag", { class: SLOT_COLOR[s] }, SLOT_LABEL[s] || s),
-          items.length ? h("ul.list", items.map((m) => h("li", mealTitleNode(m), moveBtn("meal", m.id, m.title, m.date), delBtn(`/meals/${m.id}`, m.title)))) : h("p.empty", "—"));
+          h("span.slot-label", { class: SLOT_TONE[s] }, SLOT_LABEL[s] || s),
+          items.length ? h("ul.list", items.map((m) => h("li", mealTitleNode(m), mealMenu(m)))) : h("p.empty", "—"));
       }),
       h("h2", "Add meal"),
       mealForm(cal.sel, recipes),

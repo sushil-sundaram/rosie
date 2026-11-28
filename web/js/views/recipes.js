@@ -200,11 +200,19 @@ async function deductFromPantry(deductItems) {
   }
 }
 
-async function addMissingToPantry(missingItems) {
+/** Puts what the pantry doesn't cover for this recipe on the groceries list. */
+async function addToGroceries(recipe, missingItems) {
   if (!missingItems.length) return;
   try {
-    const out = await api("/pantry/batch", { method: "POST", body: { expense_id: null, items: missingItems } });
-    toast(`Pantry: ${out.added} added, ${out.topped_up} topped up`);
+    const out = await api("/groceries/batch", {
+      method: "POST",
+      body: { items: missingItems.map((m) => ({ ...m, source: recipe.name })) },
+    });
+    const parts = [];
+    if (out.added) parts.push(`${out.added} added`);
+    if (out.merged) parts.push(`${out.merged} combined with items already listed`);
+    if (out.already) parts.push(`${out.already} already on the list for this recipe`);
+    toast(`Groceries: ${parts.join(", ") || "nothing to add"}`, false, { label: "Open list", onclick: () => { location.hash = "#/groceries"; } });
     render();
   } catch (err) {
     fail(err);
@@ -387,8 +395,8 @@ function recipeCard(r, pantry) {
             ? h("button", { type: "button", onclick: () => deductFromPantry(matchInfo.deductItems) }, `Deduct (${matchInfo.deductItems.length}) from pantry`)
             : null,
           matchInfo.missingItems.length
-            ? h("button", { type: "button", onclick: () => addMissingToPantry(matchInfo.missingItems) }, `Add ${matchInfo.missingItems.length} missing`)
-            : null,
+            ? h("button", { type: "button", onclick: () => addToGroceries(r, matchInfo.missingItems) }, `Add ${matchInfo.missingItems.length} to groceries`)
+            : h("span.meta.c-green", "Everything is in the pantry"),
           h("button", { type: "button", onclick: async () => { recipeDraft = asDraft(r); await render(); window.scrollTo(0, 0); } }, "Edit"),
           srcUrl ? h("a.meta", { href: srcUrl, target: "_blank", rel: "noopener noreferrer" }, hostOf(srcUrl) + " ↗") : null))),
     delBtn(`/recipes/${r.id}`, r.name),

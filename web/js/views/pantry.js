@@ -1,6 +1,6 @@
 import { api, conflictCurrent } from "../api.js";
 import { addDays, fmtDay, parseISO, today } from "../dates.js";
-import { delBtn, fail, formData, h, list, segmented, showConflict, toast } from "../dom.js";
+import { delBtn, fail, formData, h, list, rowMenu, segmented, showConflict, toast } from "../dom.js";
 import { fmtQty, money, moneyShort } from "../money.js";
 import { defaultLowThreshold, isPantryLow } from "../pantry_match.js";
 import { render } from "../router.js";
@@ -132,14 +132,17 @@ export async function pantryView(root) {
       }
     },
   },
-    h("input", { name: "name", placeholder: "Item", required: true, autocomplete: "off", "aria-label": "Item" }),
+    h("input", { name: "name", placeholder: "Add an item", required: true, autocomplete: "off", "aria-label": "Item" }),
     h("input.w-xs", { name: "quantity", type: "number", step: "any", min: "0", value: "1", required: true, "aria-label": "Quantity" }),
     h("input.w-xs", { name: "unit", placeholder: "Unit", value: "pcs", "aria-label": "Unit" }),
-    h("input.w-date", { name: "expires_on", type: "date", title: "Expiry date (optional)", "aria-label": "Expiry date, optional" }),
-    recent.length ? h("select", { name: "expense_id", "aria-label": "Bought with expense, optional" },
-      h("option", { value: "" }, "Bought with… (optional)"),
-      recent.map((e) => h("option", { value: e.id }, `${fmtDay(e.date)} · ${e.title} · ${moneyShort(e.amount)}`))) : null,
     h("button.primary", { type: "submit" }, "Add"),
+    h("details.form-more",
+      h("summary", "More options"),
+      h("div.row-fields",
+        h("label.field", h("span.meta", "Expires"), h("input", { name: "expires_on", type: "date", "aria-label": "Expiry date, optional" })),
+        recent.length ? h("select", { name: "expense_id", "aria-label": "Bought with expense, optional" },
+          h("option", { value: "" }, "Bought with… (optional)"),
+          recent.map((e) => h("option", { value: e.id }, `${fmtDay(e.date)} · ${e.title} · ${moneyShort(e.amount)}`))) : null)),
   );
 
   const photo = photoButton("Add from photo", "Looking at the photo", "/pantry/scan-photo", (out) => {
@@ -174,10 +177,12 @@ export async function pantryView(root) {
         expiryTag(it),
         boughtTag(it),
         h("button.icon", { title: "Decrease", "aria-label": `Decrease ${it.name}`, onclick: () => adjust(it, -1), disabled: it.quantity <= 0 }, "−"),
-        h("span.num", { class: isPantryLow(it) ? "c-red" : "c-green" }, `${fmtQty(it.quantity)} ${it.unit}`),
+        h("span.num", { class: isPantryLow(it) ? "c-red" : null, title: isPantryLow(it) ? "Running low" : null }, `${fmtQty(it.quantity)} ${it.unit}`),
         h("button.icon", { title: "Increase", "aria-label": `Increase ${it.name}`, onclick: () => adjust(it, 1) }, "+"),
-        editBtn(it.name, () => openEditModal(it)),
-        delBtn(`/pantry/${it.id}`, it.name),
+        rowMenu(it.name, [
+          { label: "Edit", onSelect: () => openEditModal(it) },
+          { label: "Delete", deletePath: `/pantry/${it.id}` },
+        ]),
       ], emptyMsg),
     );
   };

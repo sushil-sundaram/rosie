@@ -70,6 +70,11 @@ All endpoints below are served under `/api`. The full reference is in [`server/R
 - **Model**: meal `id`, `date`, `slot` (breakfast, lunch, dinner), `title`, `recipe_id?`; recipe `id`, `name`, `instructions` (one step per line), `servings?`, `time_minutes?`, `source_url?`, `image_url?`, `ingredients[]` (`text`, `name`, `quantity`, `unit`)
 - **Invariants**: ingredient lines are stored as written and parsed on save; imports return drafts and never write.
 
+### 3.3a Groceries
+- **Endpoints**: `GET/POST /groceries`, `POST /groceries/batch`, `PATCH/DELETE /groceries/{id}`, `POST /groceries/to-pantry`, `POST /groceries/clear-checked`
+- **Model**: `id`, `name`, `quantity` (0 = no amount), `unit`, `note` (recipes that asked for it), `checked`, `created_at`, `version`
+- **Invariants**: only what the pantry doesn't cover is added (the client compares recipe ingredients with the pantry, converting units where it can); one unticked row per name and unit; a recipe's ingredients are never added twice; moving to the pantry and removing from the list happen in one transaction.
+
 ### 3.4 Chores & Bills
 - **Endpoints**: `GET/POST /chores`, `PATCH/DELETE /chores/{id}`
 - **Model**: `id`, `title`, `assigned_to`, `priority`, `status`, `points`, `due_date?`, `repeat?`, `repeat_day?`, `next_id?`, `amount?`, `category?`, `expense_id?`

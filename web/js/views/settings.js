@@ -35,6 +35,41 @@ export function createLoginView(sync) {
   };
 }
 
+/** Names and units fixed in scan reviews, which later scans reuse. */
+async function correctionsList() {
+  let rows = [];
+  try {
+    rows = await api("/corrections");
+  } catch {
+    return h("p.hint", "Couldn't load the remembered corrections.");
+  }
+  if (!rows.length) {
+    return h("p.hint", "When you fix an item's name or unit while approving a scanned receipt or pantry photo, Rosie remembers it and uses your version the next time it reads the same thing. Nothing remembered yet.");
+  }
+  return [
+    h("p.hint", "Rosie uses these the next time a scan reads the same thing. Remove any that are wrong."),
+    h("ul.list", rows.map((c) => h("li",
+      h("div.grow",
+        h("div.title", `${c.name}${c.unit ? ` (${c.unit})` : ""}`),
+        h("div.meta", `When a scan reads “${c.source_text}”${c.uses ? ` · used ${c.uses} time${c.uses === 1 ? "" : "s"}` : ""}`)),
+      h("button.icon.del", {
+        type: "button",
+        "aria-label": `Forget the correction for ${c.source_text}`,
+        title: "Forget",
+        onclick: async () => {
+          try {
+            await api(`/corrections/${c.id}`, { method: "DELETE" });
+            toast("Forgotten");
+            render();
+          } catch (err) {
+            fail(err);
+          }
+        },
+      }, "×"),
+    ))),
+  ];
+}
+
 export function createSettingsView(sync) {
   return async function settingsView(root) {
     const s = getSettings();
@@ -65,6 +100,8 @@ export function createSettingsView(sync) {
       ),
       h("p.meta", `Preview: ${money(123456.5)}`),
       h("p.hint", "Only changes how amounts are shown; stored amounts are not converted"),
+      h("h2", "Scan corrections"),
+      await correctionsList(),
       h("h2", "Appearance"),
       segmented([["dark", "Dark"], ["light", "Light"], ["system", "Match system"]], currentTheme(), (t) => { setTheme(t); render(); }, "Theme"),
       h("p.hint", "Saved on this device only, so each person can pick their own"),

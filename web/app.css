@@ -99,15 +99,16 @@ nav#nav a.active { color: var(--pink); border-bottom-color: var(--pink); }
   #toast { bottom: calc(74px + env(safe-area-inset-bottom, 0px)); }
   .bottom-nav {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
-    display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
     background: var(--bg-dark); border-top: 1px solid var(--line);
     padding: 4px 4px calc(4px + env(safe-area-inset-bottom, 0px));
   }
   .bottom-nav a {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 2px; min-height: 48px; min-width: 44px; padding: 4px 2px;
-    color: var(--muted); font: 500 10.5px/1.1 var(--sans); border-radius: 8px;
+    gap: 2px; min-height: 48px; min-width: 0; padding: 4px 1px;
+    color: var(--muted); font: 500 10px/1.1 var(--sans); border-radius: 8px;
   }
+  .bottom-nav a span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bottom-nav a:hover { color: var(--fg); }
   .bottom-nav a.active { color: var(--pink); background: color-mix(in srgb, var(--pink) 10%, transparent); }
 }
@@ -505,3 +506,301 @@ kbd {
 .conflict { border: 1px solid var(--orange); border-radius: 8px; padding: 10px 12px; background: var(--bg-dark); }
 .conflict p { margin: 0 0 8px; font-size: 14px; }
 .conflict strong { color: var(--orange); }
+
+/* Groceries */
+.fill-from { margin: 10px 0 4px; }
+.fill-from .meta { flex-basis: 100%; }
+a.button-link { color: var(--purple); font-size: 14px; }
+.grocery-qty { width: 72px; }
+ul.list li .unit { min-width: 2.5em; }
+ul.list li .grow .meta { margin-top: 2px; }
+
+/* Status picker on chore rows */
+select.status-select {
+  flex: none; width: auto; min-height: 32px; padding: 2px 22px 2px 9px;
+  font: 600 12px var(--mono); border-radius: 99px; border: 1px solid currentColor;
+  background-color: transparent; cursor: pointer;
+}
+select.status-select option { color: var(--fg); background: var(--bg-dark); }
+
+/* "⋯" row menu */
+.menu-wrap { position: relative; flex: none; }
+button.menu-btn { font-size: 18px; line-height: 1; min-width: 36px; min-height: 36px; letter-spacing: 1px; }
+.row-menu {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 40; min-width: 190px;
+  display: flex; flex-direction: column; padding: 4px;
+  background: var(--bg-dark); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+}
+.row-menu.up { top: auto; bottom: calc(100% + 4px); }
+.row-menu button { border: 0; background: none; text-align: left; padding: 10px 12px; border-radius: 6px; font: 14px var(--sans); color: var(--fg); min-height: 40px; }
+.row-menu button:hover, .row-menu button:focus-visible { background: color-mix(in srgb, var(--purple) 15%, transparent); outline: none; }
+.row-menu button.c-red { color: var(--red); }
+
+/* ==========================================================================
+   Calm UI: neutral by default, one accent for "selected / primary",
+   red only where something needs attention. Overrides the rules above.
+   ========================================================================== */
+:root { --accent: var(--purple); --soft: color-mix(in srgb, var(--fg) 7%, transparent); }
+
+/* Type: one face for text, monospace only for numbers. */
+h1 { font: 650 24px/1.25 var(--sans); letter-spacing: -.01em; }
+h2 { font: 600 13px var(--sans); letter-spacing: .02em; color: var(--muted); margin: 28px 0 8px; }
+h2::before { content: none; }
+.eyebrow, .toggle, .tag, .col h3, .review h3 { font-family: var(--sans); }
+.stat b { font: 600 22px var(--sans); font-variant-numeric: tabular-nums; color: var(--fg); }
+.stat b.c-red { color: var(--red); }
+.num { font-family: var(--sans); font-variant-numeric: tabular-nums; }
+
+/* Labels: quiet grey, no outlines. Red stays red because it means something. */
+.tag { border: 0; background: var(--soft); color: var(--muted); font-size: 12px; padding: 2px 8px; }
+.tag.c-red { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+.tag.linkish, a.tag, button.tag { color: var(--muted); background: var(--soft); border: 0; }
+.tag.linkish:hover, a.tag:hover, button.tag:hover { color: var(--fg); }
+
+/* Navigation and "today" use the single accent. */
+nav#nav a.active { color: var(--fg); border-bottom-color: var(--accent); }
+@media (max-width: 768px) {
+  .bottom-nav a.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+}
+.cell.today .dn, .week-day.today .wd-num { background: var(--accent); color: var(--bg); }
+
+/* Calendar entries: plain text on a soft background; a thin grey bar, not a colour per type. */
+.chip { color: var(--fg); background: var(--soft); border-left: 2px solid var(--line); }
+.chip.done { color: var(--muted); }
+
+/* Toggles (calendar layers, filters): neutral when on. */
+.toggle.on, .toggle.on[class*="c-"] { color: var(--fg); border-color: var(--line); background: var(--soft); }
+
+/* Chore status picker: neutral; "Doing" gets the accent, "Done" fades. */
+select.status-select { color: var(--fg); border-color: var(--line); }
+select.status-select.c-cyan { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+select.status-select.c-green { color: var(--muted); }
+.board .col h3 span[class*="c-"] { color: var(--fg); }
+
+/* Bills: one quiet Pay button. */
+button.pay-btn { flex: none; min-height: 32px; padding: 4px 12px; border-radius: 99px; font: 600 12px var(--sans); color: var(--fg); background: transparent; border: 1px solid var(--line); }
+button.pay-btn:hover { border-color: var(--accent); }
+button.pay-btn.paid { color: var(--muted); border-color: transparent; background: var(--soft); }
+
+/* Meal slots as plain labels. */
+.slot-label { flex: none; width: 5.5em; color: var(--muted); font-size: 13px; }
+.slot .slot-label { display: block; width: auto; margin-top: 12px; }
+
+/* Rows: title over a quiet details line. */
+ul.list li .grow .title + .meta { margin-top: 1px; }
+.card .spread .title { flex: 1; min-width: 0; }
+
+/* Optional fields and the home "add" section stay tucked away until opened. */
+details.form-more { flex: 1 1 100% !important; }
+details.form-more > summary, details.add-panel > summary {
+  color: var(--muted); font-size: 13px; padding: 4px 0; cursor: pointer; width: fit-content;
+}
+details.form-more > summary:hover, details.add-panel > summary:hover { color: var(--fg); }
+details.form-more[open] > summary { margin-bottom: 8px; }
+details.add-panel { margin-top: 24px; }
+details.add-panel > summary { font-size: 14px; color: var(--accent); font-weight: 600; }
+details.add-panel[open] > summary { margin-bottom: 10px; }
+.panel-head h3 { font: 650 18px var(--sans); }
+/* Calendar entries are no longer colour-coded, so the colour key goes. */
+.legend { display: none; }
+
+/* Everything but the brand reads in the text face. */
+nav#nav, button.icon, .col h3, #toast, .spinner, .eyebrow, .cal-nav, .cal-grid.dow div, .dn, .more,
+.seg button, .toggle, input.budget, .recipe-body h4, .week-title, .week-day .wd-dow, .week-day .wd-num,
+.ing-status, select.status-select, button.pay-btn, .kbd-trigger { font-family: var(--sans); }
+nav#nav { font-size: 14px; }
+.review h3 { font-family: var(--sans); color: var(--fg); }
+ol.steps li::marker { color: var(--muted); font-family: var(--sans); }
+/* Week strip: grey dots say "something's on"; the day view says what. */
+.week-day .wd-dots i { background: var(--muted); opacity: .8; }
+/* `hidden` must win over display rules on buttons and tags. */
+[hidden] { display: none !important; }
+/* Attention colours that still mean something: overdue (red), expiring soon (orange). */
+.chip.c-red { color: var(--red); border-left-color: var(--red); }
+.tag.c-orange { color: var(--orange); background: color-mix(in srgb, var(--orange) 12%, transparent); }
+.ing-status.c-green, .ing-status.c-cyan { color: var(--muted); }
+
+/* ==========================================================================
+   Palette: "pink and sage" — Vanilla Cream #FFF7E6, Blush Petal #F7C8D3,
+   Rosewood #B46A72, Sage Leaf #A8B58A, Misty Sky #A8B7C6,
+   Midnight Lagoon #2D3A47. Colour is used as soft tints to tell types
+   apart (meals sage, chores sky, bills rose, spending blush); red is kept
+   for things that need attention.
+   ========================================================================== */
+
+/* Dark: Midnight Lagoon surfaces, cream text, blush accent. */
+:root {
+  --cream: #FFF7E6; --blush: #F7C8D3; --rose: #D08F98; --sage: #A8B58A; --sky: #A8B7C6; --lagoon: #2D3A47;
+  --bg: #26313C;
+  --bg-dark: #1F2832;
+  --line: #3B4957;
+  --fg: #FFF7E6;
+  --muted: #A8B7C6;
+  --purple: #F7C8D3;   /* accent */
+  --pink: #F7C8D3;
+  --red: #F28B93;
+  --orange: #E9BC82;
+  --yellow: #E6D49A;
+  --green: #BCC99E;    /* sage, lifted for dark */
+  --cyan: #BCCBDA;     /* sky, lifted for dark */
+  --accent: var(--purple);
+  --on-accent: #2D3A47;
+  --soft: color-mix(in srgb, var(--fg) 7%, transparent);
+  --tint: 22%;
+}
+
+/* Light: Vanilla Cream page, Midnight Lagoon text, Rosewood accent. */
+:root[data-theme="light"] {
+  --rose: #B46A72;
+  --bg: #FFF7E6;
+  --bg-dark: #F8EDD8;
+  --line: #E8DAC0;
+  --fg: #2D3A47;
+  --muted: #66717E;
+  --purple: #A65D66;   /* rosewood, deepened for text contrast */
+  --pink: #B46A72;
+  --red: #B23A48;
+  --orange: #9C6327;
+  --yellow: #7F6A1D;
+  --green: #5D6D3D;    /* sage, deepened for text */
+  --cyan: #4D6379;     /* sky, deepened for text */
+  --on-accent: #FFF7E6;
+  --tint: 34%;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    --rose: #B46A72;
+    --bg: #FFF7E6;
+    --bg-dark: #F8EDD8;
+    --line: #E8DAC0;
+    --fg: #2D3A47;
+    --muted: #66717E;
+    --purple: #A65D66;
+    --pink: #B46A72;
+    --red: #B23A48;
+    --orange: #9C6327;
+    --yellow: #7F6A1D;
+    --green: #5D6D3D;
+    --cyan: #4D6379;
+    --on-accent: #FFF7E6;
+    --tint: 34%;
+    color-scheme: light;
+  }
+}
+
+/* Primary buttons and "today" sit on the accent. */
+button.primary, .primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.cell.today .dn, .week-day.today .wd-num { background: var(--accent); color: var(--on-accent); }
+.brand { color: var(--accent); }
+
+/* Type tones: one soft colour per kind of thing. */
+.t-meal, .t-lunch { --tone: var(--sage); }
+.t-breakfast { --tone: #E2C38F; }
+.t-dinner { --tone: var(--sky); }
+.t-chore { --tone: var(--sky); }
+.t-doing { --tone: var(--sky); }
+.t-done { --tone: var(--sage); }
+.t-bill { --tone: var(--rose); }
+.t-spend { --tone: var(--blush); }
+
+/* Calendar entries: tinted background and a coloured edge, text stays readable. */
+.chip[class*="t-"] {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--tone) var(--tint), transparent);
+  border-left: 3px solid var(--tone);
+}
+.chip.done, .chip.t-done { color: var(--muted); }
+.chip.ghost { background: transparent; border-left-style: dashed; }
+.week-day .wd-dots i[class*="t-"] { background: var(--tone); opacity: 1; }
+.week-day .wd-dots i.c-red { background: var(--red); }
+
+/* Colour key is meaningful again. */
+.legend { display: flex; }
+.legend i[class*="t-"] { background: var(--tone); }
+.legend i.ghost { background: transparent; border: 1px dashed var(--tone); }
+
+/* Layer toggles show their colour as a small dot. */
+.layers .toggle[class*="t-"]::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tone); margin-right: 6px; }
+.layers .toggle[class*="t-"]:not(.on)::before { opacity: .35; }
+
+/* Meal slot names take their slot's tone. */
+.slot-label[class*="t-"] { color: color-mix(in srgb, var(--tone) 70%, var(--fg)); font-weight: 600; }
+
+/* Chore status: To do plain, Doing sky, Done sage. */
+select.status-select.c-cyan { color: var(--fg); background-color: color-mix(in srgb, var(--sky) var(--tint), transparent); border-color: transparent; }
+select.status-select.c-green { color: var(--muted); background-color: color-mix(in srgb, var(--sage) var(--tint), transparent); border-color: transparent; }
+
+/* Bills: rose outline to pay, sage once paid. */
+button.pay-btn { border-color: color-mix(in srgb, var(--rose) 70%, transparent); }
+button.pay-btn:hover { background: color-mix(in srgb, var(--rose) 18%, transparent); border-color: var(--rose); }
+button.pay-btn.paid { color: var(--fg); background: color-mix(in srgb, var(--sage) var(--tint), transparent); }
+
+/* Coloured labels come back as soft tints of their own colour. */
+.tag.c-green, .tag.c-cyan, .tag.c-orange, .tag.c-red, .tag.c-pink, .tag.c-purple, .tag.c-yellow {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+.tag.c-green { color: var(--green); } .tag.c-cyan { color: var(--cyan); } .tag.c-pink { color: var(--pink); }
+.tag.c-purple { color: var(--purple); } .tag.c-yellow { color: var(--yellow); }
+
+/* Stats: a thin colour line per figure. */
+.stats .stat { border-top: 3px solid transparent; }
+.stats .stat:nth-child(1) { border-top-color: color-mix(in srgb, var(--blush) 70%, transparent); }
+.stats .stat:nth-child(2) { border-top-color: color-mix(in srgb, var(--sky) 70%, transparent); }
+.stats .stat:nth-child(3) { border-top-color: color-mix(in srgb, var(--sage) 70%, transparent); }
+.stats .stat:nth-child(4) { border-top-color: color-mix(in srgb, var(--rose) 60%, transparent); }
+
+/* Selected day and active tab in the accent. */
+.cell.sel { box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* Main buttons (Add, Import, Save, +): a deeper shade of the page, not a colour.
+   Light: darker cream. Dark: a step down into the Lagoon. */
+:root { --btn: #1B232C; --btn-hover: #151C24; --btn-line: #46566A; }
+:root[data-theme="light"] { --btn: #EFE1C7; --btn-hover: #E6D5B6; --btn-line: #D9C6A4; }
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] { --btn: #EFE1C7; --btn-hover: #E6D5B6; --btn-line: #D9C6A4; }
+}
+button.primary, .primary {
+  background: var(--btn); border-color: var(--btn-line); color: var(--fg); font-weight: 600;
+}
+button.primary:hover, .primary:hover { background: var(--btn-hover); filter: none; }
+.fab {
+  background: var(--btn); color: var(--fg); border: 1px solid var(--btn-line);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .22);
+}
+.fab:hover { background: var(--btn-hover); filter: none; border-color: var(--btn-line); }
+
+/* Review tables for scanned receipts and pantry photos */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+form.receipt-review { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 12px 0; background: var(--bg-dark); display: grid; gap: 10px; }
+form.receipt-review h3 { margin: 0; font: 600 15px var(--sans); color: var(--fg); }
+.receipt-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 12px; }
+.receipt-fields .field { display: grid; gap: 4px; }
+.receipt-fields input, .receipt-fields select { width: 100%; }
+table.review-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.review-table th { text-align: left; font: 600 12px var(--sans); color: var(--muted); padding: 4px 4px 6px; border-bottom: 1px solid var(--line); }
+table.review-table td { padding: 4px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+table.review-table tr:last-child td { border-bottom: 0; }
+table.review-table td:first-child { width: 28px; }
+table.review-table input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; }
+table.review-table input:not([type=checkbox]) { width: 100%; min-width: 0; padding: 6px 8px; }
+table.review-table input.qty { max-width: 76px; }
+table.review-table input.unit { max-width: 64px; }
+table.review-table input[type=date] { max-width: 150px; }
+table.review-table tr.off input:not([type=checkbox]) { opacity: .45; text-decoration: line-through; }
+@media (max-width: 520px) {
+  table.review-table input.qty { max-width: 56px; }
+  table.review-table input.unit { max-width: 48px; }
+  table.review-table input[type=date] { max-width: 118px; font-size: 12px; }
+}
+/* Review tables fit the narrow side panel: fixed columns, the name takes the rest. */
+table.review-table { table-layout: fixed; }
+table.review-table th:nth-child(1), table.review-table td:nth-child(1) { width: 30px; }
+table.review-table th:nth-child(3), table.review-table td:nth-child(3) { width: 58px; }
+table.review-table th:nth-child(4), table.review-table td:nth-child(4) { width: 52px; }
+table.review-table th:nth-child(5), table.review-table td:nth-child(5) { width: 126px; }
+table.review-table input.qty, table.review-table input.unit, table.review-table input[type=date] { max-width: none; padding: 6px 4px; }
+form.receipt-review button.link { justify-self: start; }
+/* A scanned item named from a remembered correction */
+.learned { display: block; font-size: 11px; color: var(--green); margin-top: 2px; }

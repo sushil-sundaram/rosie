@@ -10,6 +10,7 @@ import { createSync } from "./js/sync.js";
 import { initTheme } from "./js/theme.js";
 import { choresView } from "./js/views/chores.js";
 import { expensesView } from "./js/views/expenses.js";
+import { groceriesView } from "./js/views/groceries.js";
 import { homeView } from "./js/views/home.js";
 import { mealsView } from "./js/views/meals.js";
 import { pantryView } from "./js/views/pantry.js";
@@ -46,6 +47,7 @@ configureRouter({
     pantry: pantryView,
     meals: mealsView,
     recipes: recipesView,
+    groceries: groceriesView,
     chores: choresView,
     expenses: expensesView,
     settings: createSettingsView(sync),

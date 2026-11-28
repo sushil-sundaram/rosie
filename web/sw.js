@@ -29,6 +29,7 @@ const SHELL_ASSETS = [
   "/js/views/pantry.js",
   "/js/views/meals.js",
   "/js/views/recipes.js",
+  "/js/views/groceries.js",
   "/js/views/chores.js",
   "/js/views/expenses.js",
   "/js/views/settings.js",
@@ -42,6 +43,7 @@ const CACHEABLE_API_PREFIXES = [
   "/api/budgets",
   "/api/meals",
   "/api/expenses",
+  "/api/groceries",
 ];
 
 self.addEventListener("install", (event) => {

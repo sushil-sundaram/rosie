@@ -10,6 +10,7 @@ server/
 └── src/
     ├── main.rs       # Config, SQLite pool, static files, /api nesting
     ├── routes.rs     # REST handlers, bill & recurrence logic, Ollama calls
+    ├── groceries.rs  # Groceries list: merge rules, moving bought items to the pantry
     ├── recipes.rs    # Recipes, ingredient parsing, import (link, photo, text)
     ├── sync.rs       # Live-update feed (Server-Sent Events)
     ├── guard.rs      # Host/Origin checks and security headers
@@ -39,6 +40,8 @@ All routes are served under `/api` (for example `GET /api/pantry`). Request and 
 | `GET` | `/health` | `{"status":"ok","version"}` after checking the database; 503 if it's unavailable. Used by the container health check |
 | `GET` | `/events` | Server-Sent Events: one `{"by","path"}` message per successful write, or `{"type":"job","job_id","kind","status","by"}` when a background AI scan completes |
 | `GET` | `/jobs/{id}` | Poll an async AI job (`{job_id, kind, status, result?, error?}`) |
+| `GET` · `POST` | `/corrections` | Scan corrections Rosie remembers. POST `{items:[{source, name, unit?}]}` saves fixes made in a scan review (`source` = what the scan read); later receipt and pantry-photo scans apply them and mark those items `remembered` |
+| `DELETE` | `/corrections/{id}` | Forget one |
 | `GET` · `PUT` | `/settings` | `{"currency":"INR","locale":"en-IN"}`; PUT accepts only known keys |
 | **Pantry** | | |
 | `GET` · `POST` | `/pantry` | List / add `{name, quantity, unit, expires_on?}` |
@@ -52,13 +55,19 @@ All routes are served under `/api` (for example `GET /api/pantry`). Request and 
 | `POST` | `/recipes/import` | One of `{url}`, `{text}` or `{image_base64}` → `200` draft directly for structured recipe links, or `202 {job_id, kind, status}` for AI extraction (`{name, servings, time_minutes, source_url, image_url, ingredients, instructions, method}`) |
 | `GET` · `POST` | `/meals` | `{date, slot, title, recipe_id?}` — slot is breakfast, lunch or dinner. GET accepts optional `?month=YYYY-MM` or `?from=YYYY-MM-DD&to=YYYY-MM-DD` and `?limit=&offset=` |
 | `PATCH` · `DELETE` | `/meals/{id}` | PATCH `{date}` to reschedule |
+| **Groceries** | | |
+| `GET` · `POST` | `/groceries` | List (unticked first) / add `{name, quantity?, unit?, source?}`. An unticked item with the same name and a compatible unit is merged: amounts add up and `source` (the recipe) is noted. Returns `status` `created`, `merged` or `already` (that recipe already put it there) |
+| `POST` | `/groceries/batch` | `{items:[…]}` → `{added, merged, already}` |
+| `PATCH` · `DELETE` | `/groceries/{id}` | PATCH `{checked?, name?, quantity?, unit?, version?}`; edits with a stale `version` get 409, ticking never does |
+| `POST` | `/groceries/to-pantry` | `{ids?, expense_id?}` (default: all ticked) → moves them into the pantry, topping up items with the same name and unit, and removes them from the list → `{moved, added, topped_up}` |
+| `POST` | `/groceries/clear-checked` | Removes ticked items without touching the pantry |
 | **Chores & bills** | | |
 | `GET` · `POST` | `/chores` | `{title, assigned_to, priority, status, points, due_date?, repeat?, amount?, category?}` — an `amount` makes it a bill |
 | `PATCH` · `DELETE` | `/chores/{id}` | PATCH any of `{status, due_date, repeat}` (`""` clears a date or stops repeating) |
 | **Expenses & budgets** | | |
 | `GET` · `POST` | `/expenses` | `{title, amount, category, date}`; POST returns `{id}`. GET accepts optional `?month=YYYY-MM` or `?from=YYYY-MM-DD&to=YYYY-MM-DD` and `?limit=&offset=` |
 | `PUT` · `DELETE` | `/expenses/{id}` | Edit (send `version`; 409 if newer) / delete: unlinks pantry items bought with it, 409 if it is a paid bill's expense (un-pay the bill instead) |
-| `POST` | `/expenses/scan-receipt` | `{image_base64}` → `202 {job_id, kind, status}`; job result is `{title, amount, category, date, items}` |
+| `POST` | `/expenses/scan-receipt` | `{image_base64}`: a photo, or a PDF as `data:application/pdf;base64,…`. Runs as a background job → `{title, amount, category, date, items, expected_items?}`. PDFs with text are read with poppler (`pdftotext -layout`); GST-table rows (description, quantity, unit) are taken straight from the layout and the text model only names the shop and tidies item names. PDFs without text are rendered and read like a photo |
 | `GET` | `/budgets` | `[{category, amount}]` — monthly, repeats every month |
 | `PUT` | `/budgets/{category}` | `{amount}`; 0 removes the budget |
 
