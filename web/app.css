@@ -804,3 +804,27 @@ table.review-table input.qty, table.review-table input.unit, table.review-table 
 form.receipt-review button.link { justify-self: start; }
 /* A scanned item named from a remembered correction */
 .learned { display: block; font-size: 11px; color: var(--green); margin-top: 2px; }
+
+/* Pantry rows: name with a quiet note line; a compact stepper that never squeezes the name. */
+.pantry-list-wrap ul.list li { gap: 8px; align-items: center; }
+.pantry-item .title { overflow-wrap: normal; word-break: normal; hyphens: auto; }
+.pantry-item .meta { margin-top: 2px; }
+.pantry-item .meta a.bought-link { color: var(--muted); text-decoration: none; border-bottom: 1px dotted var(--line); }
+.pantry-item .meta a.bought-link:hover { color: var(--fg); }
+.stepper {
+  flex: none; display: inline-flex; align-items: center;
+  border: 1px solid var(--line); border-radius: 99px; background: var(--soft);
+}
+.stepper button {
+  border: 0; background: none; color: var(--fg); font: 500 18px/1 var(--sans);
+  width: 34px; height: 34px; padding: 0; border-radius: 99px;
+}
+.stepper button:hover:not(:disabled) { background: color-mix(in srgb, var(--fg) 8%, transparent); }
+.stepper button:disabled { color: var(--muted); }
+.stepper .num { min-width: 52px; text-align: center; font-size: 14px; }
+.stepper .num small { color: var(--muted); font-size: 12px; }
+.stepper .num.c-red, .stepper .num.c-red small { color: var(--red); }
+@media (max-width: 520px) {
+  .stepper button { width: 32px; height: 32px; }
+  .stepper .num { min-width: 46px; }
+}

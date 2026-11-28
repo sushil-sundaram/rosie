@@ -56,7 +56,7 @@ The application is available at **http://localhost:3000**. Data is stored in `./
 To enable receipt, photo and recipe recognition, install a vision model and a text model on the host, and set them in `docker-compose.yml` (see [Configuration](#configuration)). The compose file uses:
 
 ```bash
-ollama pull inkling-2-mini
+ollama pull qwen2.5vl:7b
 ollama pull nemotron-3.5-lightning
 ```
 
@@ -82,7 +82,7 @@ Environment variables are set in [`docker-compose.yml`](docker-compose.yml).
 | `DATABASE_URL` | `sqlite:///app/data/rosie.db` | SQLite database location (mounted from `./data`). |
 | `TZ` | `Asia/Kolkata` | Household time zone; determines the date recorded when a bill is paid. |
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama endpoint. The container uses host networking so that it can reach an Ollama instance bound to the host's loopback interface. |
-| `OLLAMA_VISION_MODEL` | `llama3.2-vision` (compose: `inkling-2-mini`) | Vision model used for receipts, pantry photos and recipe photos. Must be a model your Ollama version can load (`ollama show <model>` lists `vision` under Capabilities). |
+| `OLLAMA_VISION_MODEL` | `llama3.2-vision` (compose: `qwen2.5vl:7b`) | Vision model used for receipts, pantry photos and recipe photos. Must be a model your Ollama version can load (`ollama show <model>` lists `vision` under Capabilities). |
 | `OLLAMA_VISION_NUM_GPU` | *(Ollama decides)* | Optional. Model layers to put on the graphics card for photo scans; `0` runs a vision model that doesn't fit in graphics memory on the processor instead (slower, about a minute per photo). |
 | `OLLAMA_TEXT_MODEL` | value of `OLLAMA_VISION_MODEL` | Optional. Model used to read recipe text and web pages without recipe data. A smaller text model, such as `qwen2.5:7b`, is faster. |
 | `ALLOWED_HOSTS` | *(none)* | Optional, comma-separated. Extra host names or `*.suffix` entries Rosie will answer to (e.g. `*.your-tailnet.ts.net`). IP addresses, `localhost`, single-word names, `*.local`, `*.lan` and `*.home.arpa` always work. |

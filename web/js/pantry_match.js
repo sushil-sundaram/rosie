@@ -38,7 +38,9 @@ export function defaultLowThreshold(unit) {
   if (u === "g" || u === "gram" || u === "grams" || u === "ml") return 100;
   if (u === "kg" || u === "kilogram" || u === "kilograms" || u === "l" || u === "liter" || u === "liters" || u === "litre" || u === "litres") return 0.5;
   if (u === "tsp" || u === "tbsp") return 2;
-  return 1;
+  // Counted things (1 coconut, 1 pack) aren't "low" until they run out; a
+  // per-item alert level (e.g. eggs at 4) can be set when editing an item.
+  return 0;
 }
 
 export function effectiveLowThreshold(item) {
